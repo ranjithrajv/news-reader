@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "./scripts"
+
+      # qmllint / `omarchy plugin validate` need Quickshell + omarchy-shell
+      # installed, which aren't available on a stock ubuntu-latest runner.
+      # scripts/verify.sh remains the full local check; this job covers what
+      # CI can do without those system dependencies.

@@ -1,0 +1,9 @@
+[
+  { "title": "Hacker News", "url": "https://news.ycombinator.com/rss", "category": "Open Source" },
+  { "title": "Lobste.rs", "url": "https://lobste.rs/rss", "category": "Open Source" },
+  { "title": "Phoronix", "url": "https://www.phoronix.com/rss.php", "category": "Open Source" },
+  { "title": "It's FOSS", "url": "https://itsfoss.com/feed/", "category": "Open Source" },
+  { "title": "arXiv CS", "url": "https://rss.arxiv.org/rss/cs", "category": "Open Science" },
+  { "title": "PLOS ONE", "url": "https://journals.plos.org/plosone/feed/atom", "category": "Open Science" },
+  { "title": "ScienceDaily", "url": "https://www.sciencedaily.com/rss/all.xml", "category": "Open Science" }
+]
