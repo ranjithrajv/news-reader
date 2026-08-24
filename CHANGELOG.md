@@ -31,5 +31,7 @@ First public release — fullscreen overlay RSS reader for Omarchy Quattro (`ove
 
 ### Security
 - Fetches via `curl -sL --max-time 8|10` capped at `500KB`/`700KB` per feed/article, parsed as text in QML JS (no eval), unsandboxed `omarchy-shell` user context documented in `README.md:Security`.
+- Bounded state reads: writable state (`read ids`, `feeds`, `font size`, `reading theme`, `unread badge`) is loaded through a regular-file/no-follow `head -c` reader with a 256 KiB ceiling (`Config.stateReadCmd`) instead of whole-file `FileView` loads — corrupted or replaced state files cannot force unbounded reads or parsing.
+- Structural caps before shell state: retained feed cardinality (`MAX_FEEDS=100`) plus per-field length caps for feed id/title/url/category, article title/link/guid/image URL (`NewsModel.sanitizeFeed/sanitizeFeeds/capStr`), applied on state load, import, add, and RSS parse; read-id map capped to last 800 keys on load; unread badge clamped to `[0, 99999]`.
 
 [0.1.0]: https://github.com/ranjithrajv/news-reader/releases/tag/v0.1.0

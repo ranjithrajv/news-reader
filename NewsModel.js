@@ -24,7 +24,18 @@ var Limits = {
     MIN_MAIN_LENGTH: 600,
     MIN_DIV_CLASS_LENGTH: 800,
     MIN_DIV_LENGTH: 600,
-    MIN_CACHED_BODY_LENGTH: 80
+    MIN_CACHED_BODY_LENGTH: 80,
+    // retained-field caps — remote XML and user-writable state must not inflate
+    // shell state unboundedly (security baseline finding, issue #2230)
+    MAX_TITLE_LENGTH: 300,
+    MAX_LINK_LENGTH: 2048,
+    MAX_GUID_LENGTH: 512,
+    MAX_IMAGE_URL_LENGTH: 2048,
+    MAX_FEEDS: 100,
+    MAX_FEED_ID_LENGTH: 128,
+    MAX_FEED_TITLE_LENGTH: 160,
+    MAX_FEED_URL_LENGTH: 2048,
+    MAX_FEED_CATEGORY_LENGTH: 64
 }
 
 function decodeEntities(s) {
@@ -80,6 +91,40 @@ function extractDate(block) {
     return isFinite(t) ? t : 0
 }
 
+function capStr(s, max) {
+    var t = String(s || "")
+    return t.length > max ? t.slice(0, max) + "…" : t
+}
+
+// Validate + bound one feed entry from user-writable state or user paste.
+// Returns null when the entry is not a usable http(s) feed.
+function sanitizeFeed(f) {
+    if (!f || typeof f !== "object" || Array.isArray(f)) return null
+    var url = String(f.url || "").trim()
+    if (url.indexOf("http://") !== 0 && url.indexOf("https://") !== 0) return null
+    var id = String(f.id || "").trim()
+    var title = String(f.title || f.name || "").trim()
+    if (!title) {
+        try { title = new URL(url).hostname.replace(/^www\./, "") } catch(e) { title = url }
+    }
+    return {
+        id: capStr(id, Limits.MAX_FEED_ID_LENGTH),
+        title: capStr(title, Limits.MAX_FEED_TITLE_LENGTH),
+        url: capStr(url, Limits.MAX_FEED_URL_LENGTH),
+        category: capStr(String(f.category || ""), Limits.MAX_FEED_CATEGORY_LENGTH)
+    }
+}
+
+function sanitizeFeeds(list) {
+    if (!Array.isArray(list)) return []
+    var out = []
+    for (var i = 0; i < list.length && out.length < Limits.MAX_FEEDS; i++) {
+        var f = sanitizeFeed(list[i])
+        if (f) out.push(f)
+    }
+    return out
+}
+
 function parseRss(xmlText, feedId, feedTitle) {
     var out = []
     if (!xmlText) return out
@@ -118,13 +163,13 @@ function parseRss(xmlText, feedId, feedTitle) {
         // crude image filter: ignore icons / 1px
         if (img && (img.indexOf("icon") !== -1 || img.indexOf("avatar") !== -1)) img = ""
         out.push({
-            id: guid,
+            id: capStr(guid, Limits.MAX_GUID_LENGTH),
             feedId: feedId,
             feedTitle: feedTitle,
-            title: title,
-            link: link,
+            title: capStr(title, Limits.MAX_TITLE_LENGTH),
+            link: capStr(link, Limits.MAX_LINK_LENGTH),
             description: desc,
-            image: img || "",
+            image: img ? capStr(img, Limits.MAX_IMAGE_URL_LENGTH) : "",
             pubDate: pub,
             pubDateLabel: pub ? timeAgo(pub) : ""
         })

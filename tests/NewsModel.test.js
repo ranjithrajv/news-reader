@@ -24,10 +24,88 @@ describe("NewsModel constants", () => {
     expect(L.MIN_DIV_CLASS_LENGTH).toBe(800);
     expect(L.MIN_DIV_LENGTH).toBe(600);
     expect(L.MIN_CACHED_BODY_LENGTH).toBe(80);
+    expect(L.MAX_TITLE_LENGTH).toBe(300);
+    expect(L.MAX_LINK_LENGTH).toBe(2048);
+    expect(L.MAX_GUID_LENGTH).toBe(512);
+    expect(L.MAX_IMAGE_URL_LENGTH).toBe(2048);
+    expect(L.MAX_FEEDS).toBe(100);
+    expect(L.MAX_FEED_ID_LENGTH).toBe(128);
+    expect(L.MAX_FEED_TITLE_LENGTH).toBe(160);
+    expect(L.MAX_FEED_URL_LENGTH).toBe(2048);
+    expect(L.MAX_FEED_CATEGORY_LENGTH).toBe(64);
   });
 
   it("defaultFeeds returns empty array", () => {
     expect(NewsModel.defaultFeeds()).toEqual([]);
+  });
+});
+
+describe("capStr", () => {
+  it("passes through short strings and falsy", () => {
+    expect(NewsModel.capStr("hi", 10)).toBe("hi");
+    expect(NewsModel.capStr(null, 5)).toBe("");
+    expect(NewsModel.capStr(undefined, 5)).toBe("");
+  });
+  it("truncates long strings with ellipsis", () => {
+    expect(NewsModel.capStr("abcdef", 4)).toBe("abcd…");
+    expect(NewsModel.capStr("abc", 3)).toBe("abc"); // exactly at cap
+  });
+});
+
+describe("sanitizeFeed", () => {
+  const L = NewsModel.Limits;
+  it("rejects non-objects, arrays, and non-http urls", () => {
+    expect(NewsModel.sanitizeFeed(null)).toBeNull();
+    expect(NewsModel.sanitizeFeed(undefined)).toBeNull();
+    expect(NewsModel.sanitizeFeed("str")).toBeNull();
+    expect(NewsModel.sanitizeFeed(42)).toBeNull();
+    expect(NewsModel.sanitizeFeed([])).toBeNull();
+    expect(NewsModel.sanitizeFeed({ url: "ftp://x" })).toBeNull();
+    expect(NewsModel.sanitizeFeed({ url: "example.com" })).toBeNull();
+    expect(NewsModel.sanitizeFeed({})).toBeNull();
+  });
+  it("accepts http and https urls and derives title from hostname", () => {
+    const a = NewsModel.sanitizeFeed({ url: "http://example.com/rss" });
+    expect(a.url).toBe("http://example.com/rss");
+    expect(a.title).toBe("example.com");
+    const b = NewsModel.sanitizeFeed({ url: "https://www.example.com/f", title: "T", id: "i", category: "C" });
+    expect(b).toEqual({ id: "i", title: "T", url: "https://www.example.com/f", category: "C" });
+  });
+  it("falls back to name for title", () => {
+    expect(NewsModel.sanitizeFeed({ url: "https://a.com/f", name: "Named" }).title).toBe("Named");
+  });
+  it("caps each retained field", () => {
+    const f = NewsModel.sanitizeFeed({
+      id: "x".repeat(L.MAX_FEED_ID_LENGTH + 50),
+      title: "t".repeat(L.MAX_FEED_TITLE_LENGTH + 50),
+      url: "https://a.com/" + "u".repeat(L.MAX_FEED_URL_LENGTH),
+      category: "c".repeat(L.MAX_FEED_CATEGORY_LENGTH + 50),
+    });
+    expect(f.id.length).toBe(L.MAX_FEED_ID_LENGTH + 1);
+    expect(f.title.length).toBe(L.MAX_FEED_TITLE_LENGTH + 1);
+    expect(f.url.length).toBeLessThanOrEqual(L.MAX_FEED_URL_LENGTH + 1); // url may already exceed cap pre-trim
+    expect(f.category.length).toBe(L.MAX_FEED_CATEGORY_LENGTH + 1);
+    expect(f.id.endsWith("…")).toBe(true);
+    expect(f.title.endsWith("…")).toBe(true);
+    expect(f.category.endsWith("…")).toBe(true);
+  });
+});
+
+describe("sanitizeFeeds", () => {
+  it("returns empty for non-arrays", () => {
+    expect(NewsModel.sanitizeFeeds(null)).toEqual([]);
+    expect(NewsModel.sanitizeFeeds(undefined)).toEqual([]);
+    expect(NewsModel.sanitizeFeeds("nope")).toEqual([]);
+    expect(NewsModel.sanitizeFeeds({})).toEqual([]);
+  });
+  it("filters invalid entries and caps cardinality at MAX_FEEDS", () => {
+    const list = [{ url: "https://a.com/1" }, { url: "bad" }, null, { url: "https://b.com/2" }];
+    const out = NewsModel.sanitizeFeeds(list);
+    expect(out).toHaveLength(2);
+    expect(out[0].url).toBe("https://a.com/1");
+    let many = [];
+    for (let i = 0; i < NewsModel.Limits.MAX_FEEDS + 20; i++) many.push({ url: "https://f" + i + ".com/r" });
+    expect(NewsModel.sanitizeFeeds(many)).toHaveLength(NewsModel.Limits.MAX_FEEDS);
   });
 });
 
@@ -240,6 +318,21 @@ describe("parseRss", () => {
     expect(out.find((x) => x.title === "T5").image).toBe("https://img.com/e.jpg");
     expect(out.find((x) => x.title === "T6").image).toBe("");
     expect(out.find((x) => x.title === "T7").image).toBe("");
+  });
+
+  it("caps retained remote fields: title, link, guid, image", () => {
+    const L = NewsModel.Limits;
+    const longTitle = "T".repeat(L.MAX_TITLE_LENGTH + 100);
+    const longLink = "https://a.com/" + "l".repeat(L.MAX_LINK_LENGTH);
+    const longGuid = "g".repeat(L.MAX_GUID_LENGTH + 100);
+    const longImg = "https://img.com/" + "i".repeat(L.MAX_IMAGE_URL_LENGTH);
+    const xml = `<rss><item><title>${longTitle}</title><link>${longLink}</link><guid>${longGuid}</guid><enclosure url="${longImg}"/></item></rss>`;
+    const out = NewsModel.parseRss(xml, "f", "F");
+    expect(out[0].title.length).toBe(L.MAX_TITLE_LENGTH + 1);
+    expect(out[0].link.length).toBe(L.MAX_LINK_LENGTH + 1);
+    expect(out[0].id.length).toBe(L.MAX_GUID_LENGTH + 1);
+    expect(out[0].image.length).toBe(L.MAX_IMAGE_URL_LENGTH + 1);
+    expect(out[0].title.endsWith("…")).toBe(true);
   });
 
   it("sorts newest first", () => {

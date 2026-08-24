@@ -31,4 +31,30 @@ describe("Config", () => {
     expect(Config.downloadsDir(undefined)).toBe("/Downloads/");
     expect(Config.downloadsDir()).toBe("/Downloads/");
   });
+
+  it("exposes stateMaxBytes ceiling", () => {
+    expect(typeof Config.stateMaxBytes).toBe("number");
+    expect(Config.stateMaxBytes).toBeGreaterThan(0);
+  });
+
+  it("shellQuote single-quotes and escapes embedded quotes", () => {
+    expect(Config.shellQuote("/plain/path")).toBe("'/plain/path'");
+    expect(Config.shellQuote("it's")).toBe("'it'\\''s'");
+    expect(Config.shellQuote("")).toBe("''");
+  });
+
+  it("stateReadCmd builds a bounded regular-file no-follow reader", () => {
+    const cmd = Config.stateReadCmd("/home/a/file.json", 1000);
+    expect(cmd).toContain("p='/home/a/file.json'");
+    expect(cmd).toContain('[ -f "$p" ]');
+    expect(cmd).toContain('[ ! -L "$p" ]');
+    expect(cmd).toContain("head -c 1000");
+  });
+
+  it("stateReadCmd defaults to stateMaxBytes and floors invalid caps", () => {
+    expect(Config.stateReadCmd("/x")).toContain(`head -c ${Config.stateMaxBytes}`);
+    expect(Config.stateReadCmd("/x", 0)).toContain(`head -c ${Config.stateMaxBytes}`); // falsy -> default
+    expect(Config.stateReadCmd("/x", -5)).toContain("head -c 1");
+    expect(Config.stateReadCmd("/x", null)).toContain(`head -c ${Config.stateMaxBytes}`);
+  });
 });

@@ -205,7 +205,7 @@ Item {
   function toggleSettings() {
     root.settingsVisible = !root.settingsVisible
     root.settingsError = ""; root.settingsInfo = ""
-    if (root.settingsVisible) feedsFileView.reload()
+    if (root.settingsVisible) root.reloadFeedsState()
   }
   function saveFeeds() {
     try { feedsFile.setText(JSON.stringify(root.feeds, null, 2)); root.settingsInfo = "Feeds saved"; root.showToast("Feeds saved") } catch(e){ root.settingsError = "Save failed: " + e }
@@ -218,27 +218,33 @@ Item {
     if (url.indexOf("http") !== 0) url = "https://" + url
     try { var u = new URL(url); if (!u.hostname) throw "bad url" } catch(e){ root.settingsError = "Invalid URL"; return }
     for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === url) { root.settingsError = "Feed already exists"; return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.settingsError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
     var id = url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
     if (!title) {
       try { title = new URL(url).hostname.replace(/^www\./,"") } catch(e){ title = "Feed " + (root.feeds.length+1) }
     }
+    var clean = NewsModel.sanitizeFeed({ id: id, title: title, url: url, category: "Custom" })
+    if (!clean) { root.settingsError = "Invalid URL"; return }
     var next = root.feeds.slice()
-    next.push({ id: id, title: title, url: url, category: "Custom" })
+    next.push(clean)
     root.feeds = next
     saveFeeds()
     root.newFeedUrl = ""; root.newFeedTitle = ""
-    root.settingsInfo = 'Added "' + title + '"'
+    root.settingsInfo = 'Added "' + clean.title + '"'
     root.showToast("Feed added")
   }
   function addSuggestedFeed(feed) {
     root.settingsError = ""; root.settingsInfo = ""
-    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === feed.url) { root.settingsError = "Feed already exists"; return }
-    var id = feed.url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
+    var clean = NewsModel.sanitizeFeed(feed)
+    if (!clean || !clean.url) { root.settingsError = "Invalid feed"; return }
+    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === clean.url) { root.settingsError = "Feed already exists"; return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.settingsError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
+    var id = clean.url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
     var next = root.feeds.slice()
-    next.push({ id: id, title: feed.title, url: feed.url, category: feed.category || "Custom" })
+    next.push({ id: id, title: clean.title, url: clean.url, category: clean.category || "Custom" })
     root.feeds = next
     saveFeeds()
-    root.settingsInfo = 'Added "' + feed.title + '"'
+    root.settingsInfo = 'Added "' + clean.title + '"'
     root.showToast("Feed added")
   }
   function removeFeed(id) {
@@ -272,6 +278,7 @@ Item {
   }
   function undoRemoveFeed() {
     if (!root.pendingUndoFeed) return
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.showToast("Feed limit reached"); return }
     var next = root.feeds.slice()
     next.push(root.pendingUndoFeed)
     root.feeds = next
@@ -317,12 +324,13 @@ Item {
     var seen={}
     for (var i=0;i<next.length;i++) seen[next[i].url]=true
     for (var j=0;j<list.length;j++) {
-      var e=list[j]; if (!e || !e.url) continue
-      var u=String(e.url).trim(); if (u.indexOf("http")!==0) continue
-      if (seen[u]) { skipped++; continue }
-      var tid = String(e.id||"").trim() || u.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36) + j
-      next.push({ id: tid, title: String(e.title|| e.name || u.replace(/^https?:\/\//,"").slice(0,32)), url: u, category: String(e.category||"Imported") })
-      seen[u]=true; added++
+      if (next.length >= NewsModel.Limits.MAX_FEEDS) break
+      var clean = NewsModel.sanitizeFeed(list[j])
+      if (!clean) { skipped++; continue }
+      if (seen[clean.url]) { skipped++; continue }
+      var tid = clean.id || clean.url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36) + j
+      next.push({ id: tid, title: clean.title, url: clean.url, category: clean.category || "Imported" })
+      seen[clean.url]=true; added++
     }
     if (added===0) { root.settingsError = "No new feeds (all duplicates)"; return }
     root.feeds = next
@@ -367,8 +375,8 @@ Item {
       if (p && typeof p.feed === "string" && p.feed) root.selectedFeedId = p.feed
       if (p && typeof p.search === "string") root.filterText = p.search
     } catch(e) {}
-    readFileView.reload()
-    feedsFileView.reload()
+    root.reloadReadIds()
+    root.reloadFeedsState()
     // No hard-coded mock articles — fetch only user-configured feeds.
     if (root.articles.length === 0) {
       root.refresh()
@@ -600,21 +608,54 @@ Item {
     articleList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
-  // persistence for read ids
-  FileView {
-    id: readFileView
-    path: root.readIdsPath
-    onLoaded: {
-      try {
-        var t = text()
-        if (t && t.trim().length > 0) {
-          var obj = JSON.parse(t)
-          if (obj && typeof obj === "object") root.readIds = obj
-        }
-      } catch(e) {}
-    }
-    onLoadFailed: {}
+  // persistence for read ids — loaded through bounded regular-file/no-follow
+  // readers (security baseline): user-writable state never reaches shell state
+  // uncapped.
+  function applyReadIds(t) {
+    try {
+      var o = JSON.parse(String(t || ""))
+      if (!o || typeof o !== "object" || Array.isArray(o)) return
+      var keys = Object.keys(o)
+      var capped = {}
+      var start = Math.max(0, keys.length - NewsModel.Limits.MAX_READ_IDS)
+      for (var i = start; i < keys.length; i++) capped[keys[i]] = true
+      root.readIds = capped
+    } catch(e) {}
   }
+  function applyFeedsState(t) {
+    try {
+      var clean = NewsModel.sanitizeFeeds(JSON.parse(String(t || "")))
+      if (clean.length > 0) root.feeds = clean
+    } catch(e) {}
+  }
+  function applyFontSize(t) {
+    var n = parseInt(String(t || "").trim(), 10)
+    if (isFinite(n) && n >= root.fontSizeMin && n <= root.fontSizeMax) root.articleFontSize = n
+  }
+  function applyReadingTheme(t) {
+    var s = String(t || "").trim()
+    if (s in root.readingPalette || s === "auto") root.readingTheme = s
+  }
+
+  // one sequential bounded reader for all writable state files
+  Process {
+    id: stateReader
+    property var sink: null
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (stateReader.sink) stateReader.sink(String(text || ""))
+    }
+  }
+  function readStateFile(path, sink) {
+    stateReader.sink = sink
+    stateReader.command = ["bash", "-c", Config.stateReadCmd(path, Config.stateMaxBytes)]
+    stateReader.running = true
+  }
+  function reloadReadIds()      { root.readStateFile(root.readIdsPath, root.applyReadIds) }
+  function reloadFontSize()     { root.readStateFile(root.fontSizePath, root.applyFontSize) }
+  function reloadReadingTheme() { root.readStateFile(root.readingThemePath, root.applyReadingTheme) }
+  function reloadFeedsState()   { root.readStateFile(root.feedsPath, root.applyFeedsState) }
+
   FileView {
     id: readFile
     path: root.readIdsPath
@@ -626,10 +667,6 @@ Item {
   FileView {
     id: fontSizeFile
     path: root.fontSizePath
-    onLoaded: {
-      var n = parseInt(String(text()||"").trim())
-      if (isFinite(n) && n >= root.fontSizeMin && n <= root.fontSizeMax) root.articleFontSize = n
-    }
   }
   FileView {
     id: feedsFile
@@ -638,18 +675,6 @@ Item {
   FileView {
     id: readingThemeFile
     path: root.readingThemePath
-    onLoaded: {
-      var t = String(text()||"").trim()
-      if (t in root.readingPalette || t === "auto") root.readingTheme = t
-    }
-  }
-  FileView {
-    id: feedsFileView
-    path: root.feedsPath
-    onLoaded: {
-      try { var j=JSON.parse(text()); if (Array.isArray(j) && j.length>0 && j[0].url) root.feeds = j } catch(e){}
-    }
-    onLoadFailed: {}
   }
   FileView { id: exportFile; path: root.exportJsonPath }
   FileView { id: exportFileOpml; path: root.exportOpmlPath }
@@ -657,11 +682,11 @@ Item {
     id: suggestedFeedsFileView
     path: root.suggestedFeedsPath
     onLoaded: {
-      try { var j = JSON.parse(text()); if (Array.isArray(j)) root.suggestedFeeds = j } catch(e){}
+      try { root.suggestedFeeds = NewsModel.sanitizeFeeds(JSON.parse(text())) } catch(e){}
     }
     onLoadFailed: {}
   }
-  Component.onCompleted: { fontSizeFile.reload(); feedsFileView.reload(); readingThemeFile.reload(); suggestedFeedsFileView.reload() }
+  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); suggestedFeedsFileView.reload() }
   onUnreadCountChanged: {
     if (unreadFile) unreadFile.setText(String(root.unreadCount))
   }

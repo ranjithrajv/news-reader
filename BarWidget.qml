@@ -25,20 +25,31 @@ BarWidget {
   implicitWidth: button.implicitWidth + (badge.visible ? 6 : 0)
   implicitHeight: button.implicitHeight
 
-  FileView {
-    id: unreadView
-    path: root.unreadPath
-    onLoaded: {
-      var n = parseInt(String(text()||"0").trim())
-      root.unread = isFinite(n) ? n : 0
+  function applyUnread(t) {
+    // clamp to a sane non-negative integer — state file is user-writable
+    var n = parseInt(String(t || "").trim(), 10)
+    if (!isFinite(n) || n < 0) n = 0
+    if (n > 99999) n = 99999
+    root.unread = n
+  }
+
+  // bounded regular-file/no-follow read of the unread bridge (security baseline)
+  Process {
+    id: unreadReader
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyUnread(String(text || ""))
     }
-    onLoadFailed: root.unread = 0
+  }
+  function reloadUnread() {
+    unreadReader.command = ["bash", "-c", Config.stateReadCmd(root.unreadPath, Config.stateMaxBytes)]
+    unreadReader.running = true
   }
   Timer {
     interval: root.badgePollIntervalMs; running: true; repeat: true
-    onTriggered: unreadView.reload()
+    onTriggered: root.reloadUnread()
   }
-  Component.onCompleted: unreadView.reload()
+  Component.onCompleted: root.reloadUnread()
 
   WidgetButton {
     id: button

@@ -10,6 +10,9 @@ export {
   extractAttr,
   extractLink,
   extractDate,
+  capStr,
+  sanitizeFeed,
+  sanitizeFeeds,
   parseRss,
   timeAgo,
   filterArticles,
@@ -29,9 +32,12 @@ export {
   stateDirSuffix,
   downloadsSuffix,
   allFeedsId,
+  stateMaxBytes,
   stateDir,
   statePath,
   downloadsDir,
+  shellQuote,
+  stateReadCmd,
 };
 `;
 

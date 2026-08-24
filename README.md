@@ -64,7 +64,7 @@ Uses shared tokens so themes style it automatically: `Color.menu.*` (`background
 
 ## Security
 
-Runs unsandboxed inside `omarchy-shell` as your user. Fetch is `curl -sL --max-time 8` capped at 500 KB per feed, parsed as text in QML JS — no eval, no hooks, no sudo. Review `Overlay.qml:fetchNext` + `NewsModel.js:parseRss` before enabling.
+Runs unsandboxed inside `omarchy-shell` as your user. Fetch is `curl -sL --max-time 8` capped at 500 KB per feed, parsed as text in QML JS — no eval, no hooks, no sudo. Writable state files are read through bounded regular-file/no-follow readers (256 KiB ceiling) and all retained collections/field lengths are structurally capped before entering shell state. Review `Overlay.qml:fetchNext` + `NewsModel.js:parseRss` before enabling.
 
 ## License
 
