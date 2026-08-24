@@ -11,7 +11,7 @@ describe("static assets", () => {
     const raw = fs.readFileSync(path.join(root, "manifest.json"), "utf-8");
     const m = JSON.parse(raw);
     expect(m.schemaVersion).toBe(1);
-    expect(m.id).toBe("io.github.ranjithraj.news-reader");
+    expect(m.id).toBe("ranjithraj.news-reader");
     expect(m.kinds).toEqual(expect.arrayContaining(["overlay", "bar-widget"]));
     expect(m.entryPoints.overlay).toBe("Overlay.qml");
     expect(m.entryPoints.barWidget).toBe("BarWidget.qml");

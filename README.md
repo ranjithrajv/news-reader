@@ -15,23 +15,23 @@ Press the bar button (📰) or summon via IPC to open a centered card:
 ```sh
 omarchy plugin add https://github.com/ranjithrajv/news-reader --enable --yes
 # then add to bar if not auto-placed:
-omarchy bar move io.github.ranjithraj.news-reader --section right
+omarchy bar move ranjithraj.news-reader --section right
 ```
 
 Local dev (this repo is a plugin checkout already):
 
 ```sh
-mkdir -p ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader
-cp manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js suggested-feeds.json ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader/
+mkdir -p ~/.config/omarchy/plugins/ranjithraj.news-reader
+cp manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js suggested-feeds.json ~/.config/omarchy/plugins/ranjithraj.news-reader/
 omarchy-shell shell rescanPlugins
-omarchy plugin validate ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader
-qmllint -I /usr/share/omarchy/shell ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader/Overlay.qml ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader/BarWidget.qml
+omarchy plugin validate ~/.config/omarchy/plugins/ranjithraj.news-reader
+qmllint -I /usr/share/omarchy/shell ~/.config/omarchy/plugins/ranjithraj.news-reader/Overlay.qml ~/.config/omarchy/plugins/ranjithraj.news-reader/BarWidget.qml
 ```
 
 ## Remove
 
 ```sh
-omarchy plugin remove io.github.ranjithraj.news-reader
+omarchy plugin remove ranjithraj.news-reader
 ```
 
 State (feeds, read ids, unread count, font size) is left at `~/.local/state/omarchy/news-reader-*.json`; delete those files to fully reset.
@@ -43,9 +43,9 @@ External commands invoked at runtime: `curl` (feed/article fetch), `wl-copy` (`w
 ## Summon / hide
 
 ```sh
-omarchy-shell shell summon io.github.ranjithraj.news-reader '{}'
-omarchy-shell shell hide io.github.ranjithraj.news-reader
-omarchy-shell shell toggle io.github.ranjithraj.news-reader '{}'
+omarchy-shell shell summon ranjithraj.news-reader '{}'
+omarchy-shell shell hide ranjithraj.news-reader
+omarchy-shell shell toggle ranjithraj.news-reader '{}'
 # bar button also triggers summon
 ```
 

@@ -399,7 +399,7 @@ Item {
   function dismiss() {
     root.close()
     if (root.shell && typeof root.shell.hide === "function")
-      root.shell.hide((root.manifest && root.manifest.id) || "io.github.ranjithraj.news-reader")
+      root.shell.hide((root.manifest && root.manifest.id) || "ranjithraj.news-reader")
   }
 
   function toggle() {

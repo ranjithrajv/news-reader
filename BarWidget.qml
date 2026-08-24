@@ -7,7 +7,7 @@ import "Config.js" as Config
 
 BarWidget {
   id: root
-  moduleName: "io.github.ranjithraj.news-reader"
+  moduleName: "ranjithraj.news-reader"
 
   function openOverlay() {
     Quickshell.execDetached(["omarchy-shell", "shell", "toggle", root.moduleName, "{}"])
