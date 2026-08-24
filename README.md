@@ -28,6 +28,18 @@ omarchy plugin validate ~/.config/omarchy/plugins/io.github.ranjithraj.news-read
 qmllint -I /usr/share/omarchy/shell ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader/Overlay.qml ~/.config/omarchy/plugins/io.github.ranjithraj.news-reader/BarWidget.qml
 ```
 
+## Remove
+
+```sh
+omarchy plugin remove io.github.ranjithraj.news-reader
+```
+
+State (feeds, read ids, unread count, font size) is left at `~/.local/state/omarchy/news-reader-*.json`; delete those files to fully reset.
+
+## Dependencies
+
+External commands invoked at runtime: `curl` (feed/article fetch), `wl-copy` (`wl-clipboard`, copy link/export), `notify-send` (`libnotify`, export/share notifications), `xdg-open` (open story in browser). No daemons, no build step, no sudo.
+
 ## Summon / hide
 
 ```sh
@@ -53,3 +65,7 @@ Uses shared tokens so themes style it automatically: `Color.menu.*` (`background
 ## Security
 
 Runs unsandboxed inside `omarchy-shell` as your user. Fetch is `curl -sL --max-time 8` capped at 500 KB per feed, parsed as text in QML JS — no eval, no hooks, no sudo. Review `Overlay.qml:fetchNext` + `NewsModel.js:parseRss` before enabling.
+
+## License
+
+AGPL-3.0-or-later — see [LICENSE](LICENSE).
