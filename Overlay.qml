@@ -659,25 +659,30 @@ Item {
   FileView {
     id: readFile
     path: root.readIdsPath
+    preload: false
   }
   FileView {
     id: unreadFile
     path: root.unreadPath
+    preload: false
   }
   FileView {
     id: fontSizeFile
     path: root.fontSizePath
+    preload: false
   }
   FileView {
     id: feedsFile
     path: root.feedsPath
+    preload: false
   }
   FileView {
     id: readingThemeFile
     path: root.readingThemePath
+    preload: false
   }
-  FileView { id: exportFile; path: root.exportJsonPath }
-  FileView { id: exportFileOpml; path: root.exportOpmlPath }
+  FileView { id: exportFile; path: root.exportJsonPath; preload: false }
+  FileView { id: exportFileOpml; path: root.exportOpmlPath; preload: false }
   FileView {
     id: suggestedFeedsFileView
     path: root.suggestedFeedsPath
