@@ -23,6 +23,7 @@ export {
   feedUnreadCount,
   categoryColor,
   hslToHex,
+  groupFeedsByCategory,
   defaultFeeds,
 };
 `;

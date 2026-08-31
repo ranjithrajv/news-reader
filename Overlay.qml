@@ -93,12 +93,14 @@ Item {
 
   // derived — respects search + feed + unread toggle
   readonly property var filtered: {
-    var base = NewsModel.filterArticles(root.articles, root.filterText, root.selectedFeedId)
+    var base = NewsModel.filterArticles(root.articles, root.filterText, root.selectedFeedId, root.articleCache)
     if (!root.showUnreadOnly) return base
     var out = []
     for (var i = 0; i < base.length; i++) if (!root.readIds[base[i].id]) out.push(base[i])
     return out
   }
+  // feeds grouped into folders by category, for the chip bar and Settings
+  readonly property var groupedFeeds: NewsModel.groupFeedsByCategory(root.feeds)
   readonly property var selectedArticle: {
     if (root.filtered.length === 0) return null
     var idx = Math.max(0, Math.min(root.selectedIndex, root.filtered.length - 1))
@@ -264,6 +266,20 @@ Item {
     saveFeeds()
     root.settingsInfo = 'Added "' + clean.title + '"'
     root.showToast("Feed added")
+  }
+  function setFeedCategory(id, category) {
+    var cat = NewsModel.capStr(String(category || "").trim() || "General", NewsModel.Limits.MAX_FEED_CATEGORY_LENGTH)
+    var next = root.feeds.slice()
+    var changed = false
+    for (var i = 0; i < next.length; i++) {
+      if (next[i].id !== id || next[i].category === cat) continue
+      next[i] = { id: next[i].id, title: next[i].title, url: next[i].url, category: cat }
+      changed = true
+      break
+    }
+    if (!changed) return
+    root.feeds = next
+    saveFeeds()
   }
   function removeFeed(id) {
     var next = [], removed = null
@@ -1161,46 +1177,65 @@ Item {
                 }
 
                 Repeater {
-                  model: root.feeds
-                  delegate: Rectangle {
+                  model: root.groupedFeeds
+                  delegate: Row {
+                    id: folderChips
                     required property var modelData
-                    required property int index
-                    property bool isSelected: root.selectedFeedId === modelData.id
-                    height: 28
-                    width: chipContent.implicitWidth + 24
-                    radius: 14
-                    color: isSelected ? Color.accent : (chipHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06))
-                    border.width: isSelected ? 0 : 1
-                    border.color: Util.alpha(root.foreground, 0.14)
+                    height: 32
+                    spacing: 6
                     anchors.verticalCenter: parent.verticalCenter
-
-                    Row {
-                      id: chipContent
-                      anchors.centerIn: parent
-                      spacing: 5
-                      Rectangle {
-                        width: 6; height: 6; radius: 3
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: NewsModel.categoryColor(modelData.category)
-                      }
-                      Text {
-                        id: chipText
-                        text: {
-                          var c = NewsModel.feedUnreadCount(root.articles, modelData.id, root.readIds)
-                          return c > 0 ? modelData.title + " · " + c : modelData.title
-                        }
-                        color: isSelected ? root.background : root.foreground
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        font.bold: isSelected
-                      }
+                    Text {
+                      visible: root.groupedFeeds.length > 1
+                      text: folderChips.modelData.category
+                      color: root.foreground
+                      opacity: 0.35
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      anchors.verticalCenter: parent.verticalCenter
                     }
-                    MouseArea {
-                      id: chipHover
-                      anchors.fill: parent
-                      hoverEnabled: true
-                      cursorShape: Qt.PointingHandCursor
-                      onClicked: { root.selectedFeedId = modelData.id; root.selectedIndex = 0 }
+                    Repeater {
+                      model: folderChips.modelData.feeds
+                      delegate: Rectangle {
+                        required property var modelData
+                        required property int index
+                        property bool isSelected: root.selectedFeedId === modelData.id
+                        height: 28
+                        width: chipContent.implicitWidth + 24
+                        radius: 14
+                        color: isSelected ? Color.accent : (chipHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06))
+                        border.width: isSelected ? 0 : 1
+                        border.color: Util.alpha(root.foreground, 0.14)
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Row {
+                          id: chipContent
+                          anchors.centerIn: parent
+                          spacing: 5
+                          Rectangle {
+                            width: 6; height: 6; radius: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: NewsModel.categoryColor(modelData.category)
+                          }
+                          Text {
+                            id: chipText
+                            text: {
+                              var c = NewsModel.feedUnreadCount(root.articles, modelData.id, root.readIds)
+                              return c > 0 ? modelData.title + " · " + c : modelData.title
+                            }
+                            color: isSelected ? root.background : root.foreground
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: isSelected
+                          }
+                        }
+                        MouseArea {
+                          id: chipHover
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: { root.selectedFeedId = modelData.id; root.selectedIndex = 0 }
+                        }
+                      }
                     }
                   }
                 }
@@ -1858,61 +1893,99 @@ Item {
             Column {
               id: feedListCol
               width: parent.width
-              spacing: 6
+              spacing: 10
               visible: root.feeds.length > 0
               Repeater {
-                model: root.feeds
-                delegate: Rectangle {
+                model: root.groupedFeeds
+                delegate: Column {
+                  id: folderGroup
                   required property var modelData
-                  required property int index
                   width: feedListCol.width
-                  height: 48
-                  radius: 6
-                  color: Util.alpha(root.foreground, 0.04)
-                  border.width: 1; border.color: Util.alpha(root.foreground, 0.08)
-                  Row {
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 8
-                    Column {
-                      width: parent.width - 80
-                      spacing: 2
-                      anchors.verticalCenter: parent.verticalCenter
+                  spacing: 6
+                  Text {
+                    text: folderGroup.modelData.category + " · " + folderGroup.modelData.feeds.length
+                    color: root.foreground
+                    opacity: 0.6
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                  Repeater {
+                    model: folderGroup.modelData.feeds
+                    delegate: Rectangle {
+                      required property var modelData
+                      required property int index
+                      width: feedListCol.width
+                      height: 48
+                      radius: 6
+                      color: Util.alpha(root.foreground, 0.04)
+                      border.width: 1; border.color: Util.alpha(root.foreground, 0.08)
                       Row {
-                        width: parent.width
-                        spacing: 6
-                        Rectangle {
-                          width: 6; height: 6; radius: 3
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 8
+                        Column {
+                          width: parent.width - 164
+                          spacing: 2
                           anchors.verticalCenter: parent.verticalCenter
-                          color: NewsModel.categoryColor(modelData.category)
+                          Row {
+                            width: parent.width
+                            spacing: 6
+                            Rectangle {
+                              width: 6; height: 6; radius: 3
+                              anchors.verticalCenter: parent.verticalCenter
+                              color: NewsModel.categoryColor(modelData.category)
+                            }
+                            Text {
+                              width: parent.width - 12
+                              text: modelData.title
+                              color: root.foreground
+                              font.family: root.fontFamily
+                              font.pixelSize: Style.font.bodySmall
+                              font.bold: true
+                              elide: Text.ElideRight
+                            }
+                          }
+                          Text {
+                            width: parent.width
+                            text: modelData.url
+                            color: root.foreground
+                            opacity: 0.5
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            elide: Text.ElideMiddle
+                          }
                         }
-                        Text {
-                          width: parent.width - 12
-                          text: modelData.title
-                          color: root.foreground
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.bodySmall
-                          font.bold: true
-                          elide: Text.ElideRight
+                        Rectangle {
+                          width: 84; height: 22; radius: 4
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: Util.alpha(root.foreground, folderField.activeFocus ? 0.10 : 0.05)
+                          border.width: 1; border.color: Util.alpha(root.foreground, folderField.activeFocus ? 0.3 : 0.14)
+                          TextInput {
+                            id: folderField
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            text: modelData.category || "General"
+                            color: root.foreground
+                            opacity: 0.7
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            selectByMouse: true
+                            clip: true
+                            onEditingFinished: root.setFeedCategory(modelData.id, text)
+                            Keys.onReturnPressed: folderField.focus = false
+                          }
+                          PanelToolTip { visible: folderField.activeFocus; text: "Folder / category" }
+                        }
+                        Rectangle {
+                          width: 56; height: 28; radius: 6
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: delHover.containsMouse ? Util.alpha(Color.urgent, 0.14) : Util.alpha(Color.urgent, 0.08)
+                          border.width: 1; border.color: Util.alpha(Color.urgent, 0.2)
+                          Text { anchors.centerIn: parent; text: "Remove"; color: Color.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                          MouseArea { id: delHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.removeFeed(modelData.id) }
                         }
                       }
-                      Text {
-                        width: parent.width
-                        text: modelData.url + (modelData.category ? "  ·  " + modelData.category : "")
-                        color: root.foreground
-                        opacity: 0.5
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        elide: Text.ElideMiddle
-                      }
-                    }
-                    Rectangle {
-                      width: 56; height: 28; radius: 6
-                      anchors.verticalCenter: parent.verticalCenter
-                      color: delHover.containsMouse ? Util.alpha(Color.urgent, 0.14) : Util.alpha(Color.urgent, 0.08)
-                      border.width: 1; border.color: Util.alpha(Color.urgent, 0.2)
-                      Text { anchors.centerIn: parent; text: "Remove"; color: Color.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-                      MouseArea { id: delHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.removeFeed(modelData.id) }
                     }
                   }
                 }

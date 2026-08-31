@@ -439,6 +439,54 @@ describe("filterArticles", () => {
   it("trims query", () => {
     expect(NewsModel.filterArticles(articles, "  hello  ", NewsModel.ALL_FEEDS_ID)).toHaveLength(2);
   });
+
+  it("also matches cached article bodies not present in title/desc/feedTitle", () => {
+    const cache = { "2": "this body mentions submarines nowhere else" };
+    expect(NewsModel.filterArticles(articles, "submarines", NewsModel.ALL_FEEDS_ID)).toHaveLength(0);
+    expect(NewsModel.filterArticles(articles, "submarines", NewsModel.ALL_FEEDS_ID, cache)).toHaveLength(1);
+    expect(NewsModel.filterArticles(articles, "SUBMARINES", NewsModel.ALL_FEEDS_ID, cache)).toHaveLength(1);
+  });
+
+  it("ignores a missing or unrelated cache", () => {
+    expect(NewsModel.filterArticles(articles, "hello", NewsModel.ALL_FEEDS_ID, null)).toHaveLength(2);
+    expect(NewsModel.filterArticles(articles, "hello", NewsModel.ALL_FEEDS_ID, {})).toHaveLength(2);
+  });
+});
+
+describe("groupFeedsByCategory", () => {
+  it("groups feeds by category, sorted case-insensitively", () => {
+    const feeds = [
+      { id: "a", category: "Tech" },
+      { id: "b", category: "open source" },
+      { id: "c", category: "Tech" },
+      { id: "d", category: "Art" },
+    ];
+    const groups = NewsModel.groupFeedsByCategory(feeds);
+    expect(groups.map((g) => g.category)).toEqual(["Art", "open source", "Tech"]);
+    expect(groups.find((g) => g.category === "Tech").feeds.map((f) => f.id)).toEqual(["a", "c"]);
+  });
+
+  it("keeps stable relative order for categories equal case-insensitively", () => {
+    const feeds = [
+      { id: "a", category: "ABC" },
+      { id: "b", category: "abc" },
+    ];
+    const groups = NewsModel.groupFeedsByCategory(feeds);
+    expect(groups.map((g) => g.category)).toEqual(["ABC", "abc"]);
+  });
+
+  it("falls back missing/blank category to General", () => {
+    const feeds = [{ id: "a", category: "" }, { id: "b" }, { id: "c", category: "  " }];
+    const groups = NewsModel.groupFeedsByCategory(feeds);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].category).toBe("General");
+    expect(groups[0].feeds).toHaveLength(3);
+  });
+
+  it("returns [] for non-array input", () => {
+    expect(NewsModel.groupFeedsByCategory(null)).toEqual([]);
+    expect(NewsModel.groupFeedsByCategory(undefined)).toEqual([]);
+  });
 });
 
 describe("extractArticle", () => {

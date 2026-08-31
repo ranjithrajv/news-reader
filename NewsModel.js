@@ -196,7 +196,7 @@ function timeAgo(epochMs) {
     return d.toLocaleDateString()
 }
 
-function filterArticles(articles, filterText, feedId) {
+function filterArticles(articles, filterText, feedId, articleCache) {
     var out = []
     var q = String(filterText || "").trim().toLowerCase()
     for (var i = 0; i < articles.length; i++) {
@@ -204,7 +204,8 @@ function filterArticles(articles, filterText, feedId) {
         if (feedId && feedId !== ALL_FEEDS_ID && a.feedId !== feedId) continue
         if (q) {
             var hay = (a.title + " " + a.description + " " + a.feedTitle).toLowerCase()
-            if (hay.indexOf(q) === -1) continue
+            var cached = articleCache && articleCache[a.id]
+            if (hay.indexOf(q) === -1 && !(cached && String(cached).toLowerCase().indexOf(q) !== -1)) continue
         }
         out.push(a)
     }
@@ -328,6 +329,25 @@ function hslToHex(h, s, l) {
     var f = function(n) { return l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))) }
     var toHex = function(x) { var v = Math.round(255 * x); var s = v.toString(16); return s.length < 2 ? "0" + s : s }
     return "#" + toHex(f(0)) + toHex(f(8)) + toHex(f(4))
+}
+
+// Group feeds by their `category` (folder), sorted alphabetically
+// (case-insensitive); feeds without a category fall into "General".
+// Order within a group is preserved from the input list.
+function groupFeedsByCategory(feeds) {
+    if (!Array.isArray(feeds)) return []
+    var groups = {}
+    var order = []
+    for (var i = 0; i < feeds.length; i++) {
+        var cat = String((feeds[i] && feeds[i].category) || "").trim() || "General"
+        if (!groups[cat]) { groups[cat] = []; order.push(cat) }
+        groups[cat].push(feeds[i])
+    }
+    order.sort(function(a, b) {
+        var al = a.toLowerCase(), bl = b.toLowerCase()
+        return al < bl ? -1 : (al > bl ? 1 : 0)
+    })
+    return order.map(function(cat) { return { category: cat, feeds: groups[cat] } })
 }
 
 function defaultFeeds() {
