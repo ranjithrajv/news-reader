@@ -1,0 +1,7 @@
+#!/bin/bash
+# Commit-msg hook: per CLAUDE.md, commit messages must not reference "Claude".
+set -euo pipefail
+if grep -qiE 'claude' "$1"; then
+  echo "Commit message must not reference 'Claude' (see CLAUDE.md)." >&2
+  exit 1
+fi
