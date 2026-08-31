@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Config.js" as Config
+import "I18n.js" as I18n
 
 BarWidget {
   id: root
@@ -18,9 +19,14 @@ BarWidget {
   // --- State paths (1) — shared via Config.js ---
   readonly property string stateDir: Config.stateDir(Quickshell.env("HOME"))
   readonly property string unreadPath: stateDir + "news-reader-unread.json"
+  readonly property string localePath: stateDir + "news-reader-locale.json"
 
   // --- Timing config (3) ---
   readonly property int badgePollIntervalMs: 4000
+
+  // --- i18n — same locale the overlay's Settings panel persists ---
+  property string locale: I18n.resolveLocale(Qt.uiLanguages(), I18n.Locales)
+  function tr(key, vars) { return I18n.t(root.locale, key, vars) }
 
   implicitWidth: button.implicitWidth + (badge.visible ? 6 : 0)
   implicitHeight: button.implicitHeight
@@ -33,6 +39,11 @@ BarWidget {
     root.unread = n
   }
 
+  function applyLocale(t) {
+    var l = String(t || "").trim()
+    if (I18n.Locales.indexOf(l) !== -1) root.locale = l
+  }
+
   // bounded regular-file/no-follow read of the unread bridge (security baseline)
   Process {
     id: unreadReader
@@ -41,15 +52,26 @@ BarWidget {
       onStreamFinished: root.applyUnread(String(text || ""))
     }
   }
+  Process {
+    id: localeReader
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyLocale(String(text || ""))
+    }
+  }
   function reloadUnread() {
     unreadReader.command = ["bash", "-c", Config.stateReadCmd(root.unreadPath, Config.stateMaxBytes)]
     unreadReader.running = true
   }
+  function reloadLocale() {
+    localeReader.command = ["bash", "-c", Config.stateReadCmd(root.localePath, Config.stateMaxBytes)]
+    localeReader.running = true
+  }
   Timer {
     interval: root.badgePollIntervalMs; running: true; repeat: true
-    onTriggered: root.reloadUnread()
+    onTriggered: { root.reloadUnread(); root.reloadLocale() }
   }
-  Component.onCompleted: root.reloadUnread()
+  Component.onCompleted: { root.reloadUnread(); root.reloadLocale() }
 
   WidgetButton {
     id: button
@@ -57,7 +79,7 @@ BarWidget {
     bar: root.bar
     // newspaper icon (Nerd Font: nf-fa-newspaper_o  \uf1ea) fallback to text
     text: "\uF1EA"
-    tooltipText: root.unread > 0 ? "News Reader — " + root.unread + " unread" : "News Reader — summon overlay"
+    tooltipText: root.unread > 0 ? root.tr("bar.tooltipUnread", { n: root.unread }) : root.tr("bar.tooltipSummon")
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.openOverlay()
     }

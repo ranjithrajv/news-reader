@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SHIPPED_FILES=(manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js suggested-feeds.json)
+SHIPPED_FILES=(manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js I18n.js suggested-feeds.json)
 
 # Build qmllint include path only if the omarchy shell import dir exists
 # (it does on a dev machine; absent on CI where qmllint isn't run).
@@ -27,7 +27,7 @@ fi
 echo "==> JS syntax (node --check, pragma-stripped)"
 # Shipped QML JS modules start with `.pragma library`, which plain Node can't
 # parse; strip that one line before checking (mirrors vitest.config.js transform).
-for f in Config.js NewsModel.js; do
+for f in Config.js NewsModel.js I18n.js; do
   [ -f "$f" ] || continue
   tmp="$(mktemp -t verify-XXXXXX.js)"
   sed '/^\.pragma library$/d' "$f" > "$tmp"

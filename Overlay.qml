@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Ui
 import "NewsModel.js" as NewsModel
 import "Config.js" as Config
+import "I18n.js" as I18n
 
 Item {
   id: root
@@ -22,15 +23,21 @@ Item {
   readonly property string feedsPath: stateDir + "news-reader-feeds.json"
   readonly property string readingThemePath: stateDir + "news-reader-reading-theme.json"
   readonly property string autoRefreshPath: stateDir + "news-reader-autorefresh.json"
+  readonly property string localePath: stateDir + "news-reader-locale.json"
   readonly property string suggestedFeedsPath: Qt.resolvedUrl("suggested-feeds.json")
 
   // --- Auto-refresh interval options — hourly (60m) is the default ---
   readonly property var autoRefreshOptions: [
-    { min: 60,       label: "Hourly" },
-    { min: 60 * 24,  label: "Daily" },
-    { min: 60 * 24 * 7, label: "Weekly" }
+    { min: 60,       key: "hourly" },
+    { min: 60 * 24,  key: "daily" },
+    { min: 60 * 24 * 7, key: "weekly" }
   ]
   readonly property int autoRefreshDefaultMs: 60 * 60 * 1000
+
+  // --- i18n — locale auto-detected from the system, overridable in Settings ---
+  property string locale: I18n.resolveLocale(Qt.uiLanguages(), I18n.Locales)
+  readonly property bool isRtl: I18n.isRtl(root.locale)
+  function tr(key, vars) { return I18n.t(root.locale, key, vars) }
 
   // --- Fetch config (2) ---
   readonly property int feedFetchTimeoutSec: 8
@@ -199,23 +206,32 @@ Item {
     if (next !== root.articleFontSize) {
       root.articleFontSize = next
       fontSizeFile.setText(String(next))
-      showToast("Font " + next + "px")
+      showToast(root.tr("toast.fontSize", { n: next }))
     }
   }
-  function resetFont() { root.articleFontSize = root.fontSizeDefault; fontSizeFile.setText(String(root.fontSizeDefault)); showToast("Font reset") }
+  function resetFont() { root.articleFontSize = root.fontSizeDefault; fontSizeFile.setText(String(root.fontSizeDefault)); showToast(root.tr("toast.fontReset")) }
   function setReadingTheme(t) {
     if (root.readingTheme === t) return
     root.readingTheme = t
     readingThemeFile.setText(t)
-    showToast("Reading theme: " + t.charAt(0).toUpperCase() + t.slice(1))
+    showToast(root.tr("toast.readingTheme", { theme: root.tr("theme." + t) }))
   }
   function setAutoRefresh(ms) {
     if (!isFinite(ms) || ms <= 0) return
     root.autoRefreshIntervalMs = ms
     autoRefreshFile.setText(String(ms))
     autoRefresh.restart()
-    var min = Math.round(ms / 60000)
-    showToast("Auto-refresh: " + (min >= 60 ? (min / 60) + "h" : min + "m"))
+    var opt = null
+    for (var i = 0; i < root.autoRefreshOptions.length; i++) if (root.autoRefreshOptions[i].min * 60 * 1000 === ms) opt = root.autoRefreshOptions[i]
+    var value = opt ? root.tr("interval." + opt.key) : Math.round(ms / 60000) + "m"
+    showToast(root.tr("toast.autoRefresh", { value: value }))
+  }
+  function setLocale(loc) {
+    var l = I18n.Locales.indexOf(loc) !== -1 ? loc : "en"
+    if (root.locale === l) return
+    root.locale = l
+    localeFile.setText(l)
+    showToast(root.tr("toast.languageChanged", { name: I18n.LocaleNames[l] }))
   }
   function openLightbox(url) { if (!url) return; root.lightboxImage = url; root.lightboxVisible = true }
   function closeLightbox() { root.lightboxVisible = false }
@@ -228,44 +244,44 @@ Item {
     if (root.settingsVisible) root.reloadFeedsState()
   }
   function saveFeeds() {
-    try { feedsFile.setText(JSON.stringify(root.feeds, null, 2)); root.settingsInfo = "Feeds saved"; root.showToast("Feeds saved") } catch(e){ root.settingsError = "Save failed: " + e }
+    try { feedsFile.setText(JSON.stringify(root.feeds, null, 2)); root.settingsInfo = root.tr("toast.feedsSaved"); root.showToast(root.tr("toast.feedsSaved")) } catch(e){ root.settingsError = root.tr("error.saveFailed", { error: e }) }
   }
   function addFeed() {
     var url = String(root.newFeedUrl||"").trim()
     var title = String(root.newFeedTitle||"").trim()
     root.settingsError = ""; root.settingsInfo = ""; root.addFeedError = ""
-    if (!url) { root.addFeedError = "URL required"; return }
+    if (!url) { root.addFeedError = root.tr("error.urlRequired"); return }
     if (url.indexOf("http") !== 0) url = "https://" + url
-    try { var u = new URL(url); if (!u.hostname) throw "bad url" } catch(e){ root.addFeedError = "Invalid URL"; return }
-    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === url) { root.addFeedError = "Feed already exists"; return }
-    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.addFeedError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
+    try { var u = new URL(url); if (!u.hostname) throw "bad url" } catch(e){ root.addFeedError = root.tr("error.invalidUrl"); return }
+    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === url) { root.addFeedError = root.tr("error.feedExists"); return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.addFeedError = root.tr("error.feedLimit", { max: NewsModel.Limits.MAX_FEEDS }); return }
     var id = url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
     if (!title) {
       try { title = new URL(url).hostname.replace(/^www\./,"") } catch(e){ title = "Feed " + (root.feeds.length+1) }
     }
     var clean = NewsModel.sanitizeFeed({ id: id, title: title, url: url, category: "Custom" })
-    if (!clean) { root.settingsError = "Invalid URL"; return }
+    if (!clean) { root.settingsError = root.tr("error.invalidUrl"); return }
     var next = root.feeds.slice()
     next.push(clean)
     root.feeds = next
     saveFeeds()
     root.newFeedUrl = ""; root.newFeedTitle = ""
-    root.settingsInfo = 'Added "' + clean.title + '"'
-    root.showToast("Feed added")
+    root.settingsInfo = root.tr("toast.feedAddedNamed", { title: clean.title })
+    root.showToast(root.tr("toast.feedAdded"))
   }
   function addSuggestedFeed(feed) {
     root.settingsError = ""; root.settingsInfo = ""
     var clean = NewsModel.sanitizeFeed(feed)
-    if (!clean || !clean.url) { root.settingsError = "Invalid feed"; return }
-    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === clean.url) { root.settingsError = "Feed already exists"; return }
-    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.settingsError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
+    if (!clean || !clean.url) { root.settingsError = root.tr("error.invalidFeed"); return }
+    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === clean.url) { root.settingsError = root.tr("error.feedExists"); return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.settingsError = root.tr("error.feedLimit", { max: NewsModel.Limits.MAX_FEEDS }); return }
     var id = clean.url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
     var next = root.feeds.slice()
     next.push({ id: id, title: clean.title, url: clean.url, category: clean.category || "Custom" })
     root.feeds = next
     saveFeeds()
-    root.settingsInfo = 'Added "' + clean.title + '"'
-    root.showToast("Feed added")
+    root.settingsInfo = root.tr("toast.feedAddedNamed", { title: clean.title })
+    root.showToast(root.tr("toast.feedAdded"))
   }
   function setFeedCategory(id, category) {
     var cat = NewsModel.capStr(String(category || "").trim() || "General", NewsModel.Limits.MAX_FEED_CATEGORY_LENGTH)
@@ -285,7 +301,7 @@ Item {
     var next = [], removed = null
     for (var i=0;i<root.feeds.length;i++) { if (root.feeds[i].id !== id) next.push(root.feeds[i]); else removed = root.feeds[i] }
     if (!removed) return
-    if (next.length === 0) { root.settingsError = "Keep at least one feed"; return }
+    if (next.length === 0) { root.settingsError = root.tr("error.keepAtLeastOne"); return }
     root.feeds = next
     saveFeeds()
     if (root.selectedFeedId === id) root.selectedFeedId = root.allFeedsId
@@ -308,11 +324,11 @@ Item {
     root.pendingUndoFeed = removed
     root.pendingUndoArticles = removedArticles
     root.pendingUndoCache = removedCache
-    root.showToast('"' + removed.title + '" removed', "Undo", root.undoRemoveFeed)
+    root.showToast(root.tr("toast.feedRemovedNamed", { title: removed.title }), root.tr("toast.undo"), root.undoRemoveFeed)
   }
   function undoRemoveFeed() {
     if (!root.pendingUndoFeed) return
-    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.showToast("Feed limit reached"); return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.showToast(root.tr("error.feedLimitPlain")); return }
     var next = root.feeds.slice()
     next.push(root.pendingUndoFeed)
     root.feeds = next
@@ -327,12 +343,12 @@ Item {
     root.pendingUndoFeed = null
     root.pendingUndoArticles = []
     root.pendingUndoCache = {}
-    root.showToast("Feed restored")
+    root.showToast(root.tr("toast.feedRestored"))
   }
   function importFeeds() {
     var txt = String(root.importText||"").trim()
     root.settingsError = ""; root.settingsInfo = ""
-    if (!txt) { root.settingsError = "Paste JSON or OPML first"; return }
+    if (!txt) { root.settingsError = root.tr("error.pasteFirst"); return }
     var list = null
     // try JSON array first
     try {
@@ -352,7 +368,7 @@ Item {
       }
       if (out.length>0) list = out
     }
-    if (!list || !Array.isArray(list) || list.length===0) { root.settingsError = "No feeds found — paste JSON array or OPML <outline> list"; return }
+    if (!list || !Array.isArray(list) || list.length===0) { root.settingsError = root.tr("error.noFeedsFound"); return }
     var added=0, skipped=0
     var next = root.feeds.slice()
     var seen={}
@@ -366,21 +382,21 @@ Item {
       next.push({ id: tid, title: clean.title, url: clean.url, category: clean.category || "Imported" })
       seen[clean.url]=true; added++
     }
-    if (added===0) { root.settingsError = "No new feeds (all duplicates)"; return }
+    if (added===0) { root.settingsError = root.tr("error.noNewFeeds"); return }
     root.feeds = next
     saveFeeds()
     root.importText = ""
-    root.settingsInfo = "Imported " + added + " feed(s)" + (skipped ? " · " + skipped + " skipped" : "")
-    root.showToast("Imported " + added)
+    root.settingsInfo = root.tr("toast.importedCount", { n: added }) + (skipped ? root.tr("toast.importedSkipped", { n: skipped }) : "")
+    root.showToast(root.tr("toast.importedCount", { n: added }))
   }
   function exportFeedsJson() {
     var js = JSON.stringify(root.feeds, null, 2)
     var path = root.exportJsonPath
     exportFile.setText(js)
     // also copy to clipboard
-    Quickshell.execDetached(["bash","-c","printf %s " + Util.shellQuote(js) + " | wl-copy; notify-send -a 'News Reader' 'Feeds exported' 'Downloads/news-reader-feeds.json' 2>/dev/null || true"])
-    root.settingsInfo = "Exported JSON to Downloads/news-reader-feeds.json + clipboard"
-    root.showToast("Exported JSON")
+    Quickshell.execDetached(["bash","-c","printf %s " + Util.shellQuote(js) + " | wl-copy; notify-send -a 'News Reader' " + Util.shellQuote(root.tr("toast.exportedJson")) + " 'Downloads/news-reader-feeds.json' 2>/dev/null || true"])
+    root.settingsInfo = root.tr("toast.exportedJsonInfo")
+    root.showToast(root.tr("toast.exportedJson"))
   }
   function exportFeedsOpml() {
     var xml = '<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0"><head><title>News Reader feeds</title></head><body>\n'
@@ -391,9 +407,9 @@ Item {
     xml += '</body></opml>\n'
     var path = root.exportOpmlPath
     exportFileOpml.setText(xml)
-    Quickshell.execDetached(["bash","-c","printf %s " + Util.shellQuote(xml) + " | wl-copy; notify-send -a 'News Reader' 'OPML exported' 'Downloads/news-reader-feeds.opml' 2>/dev/null || true"])
-    root.settingsInfo = "Exported OPML to Downloads/news-reader-feeds.opml + clipboard"
-    root.showToast("Exported OPML")
+    Quickshell.execDetached(["bash","-c","printf %s " + Util.shellQuote(xml) + " | wl-copy; notify-send -a 'News Reader' " + Util.shellQuote(root.tr("toast.exportedOpml")) + " 'Downloads/news-reader-feeds.opml' 2>/dev/null || true"])
+    root.settingsInfo = root.tr("toast.exportedOpmlInfo")
+    root.showToast(root.tr("toast.exportedOpml"))
   }
 
   function toggleFullScreen() { root.isFullScreen = !root.isFullScreen }
@@ -458,18 +474,18 @@ Item {
 
   function loadMultilingualTest() {
     // Removed: no hard-coded news. This previously injected multilingual mock stories.
-    root.showToast("No hard-coded test data — add feeds in Settings")
+    root.showToast(root.tr("toast.noHardcodedTestData"))
   }
 
   function fetchNext() {
     if (root.feeds.length === 0) {
       root.loading = false
-      if (!root.errorText) root.errorText = "No feeds configured — add one in Settings (⚙) or import OPML/JSON"
+      if (!root.errorText) root.errorText = root.tr("error.noFeedsConfigured")
       return
     }
     if (root.fetchCursor >= root.feeds.length) {
       root.loading = false
-      if (root.articles.length === 0 && !root.errorText) root.errorText = "No articles — check network or feed URLs"
+      if (root.articles.length === 0 && !root.errorText) root.errorText = root.tr("error.noArticles")
       return
     }
     var feed = root.feeds[root.fetchCursor]
@@ -482,7 +498,7 @@ Item {
     var serial = root.fetchSerial
     if (!text || text.trim().length === 0) {
       // keep error but continue to next feed
-      if (root.fetchCursor === 0) root.errorText = "Could not fetch " + feed.title
+      if (root.fetchCursor === 0) root.errorText = root.tr("error.couldNotFetch", { feed: feed.title })
     } else if (text.indexOf("<") === -1) {
       if (root.fetchCursor === 0) root.errorText = feed.title + ": " + text.slice(0, 120)
     } else {
@@ -496,7 +512,7 @@ Item {
         for (var k = 0; k < merged.length; k++) merged[k].pubDateLabel = merged[k].pubDate ? NewsModel.timeAgo(merged[k].pubDate) : ""
         if (serial === root.fetchSerial && merged.length > 0) root.articles = merged
       } catch(e) {
-        if (root.fetchCursor === 0) root.errorText = "Parse error for " + feed.title + ": " + e
+        if (root.fetchCursor === 0) root.errorText = root.tr("error.parseErrorFeed", { feed: feed.title, error: e })
       }
     }
     root.fetchCursor += 1
@@ -536,7 +552,7 @@ Item {
     // if selection changed, fid may not match current selectedArticle.id → keep cache but don't overwrite body unless still matching
     if (!text || text.trim().length === 0) {
       if (article && String(article.id) === fid) {
-        root.articleError = "Could not load article"
+        root.articleError = root.tr("error.couldNotLoadArticle")
         root.articleLoading = false
       } else root.articleLoading = false
       return
@@ -570,7 +586,7 @@ Item {
       }
     } catch(e) {
       if (article && String(article.id) === fid) {
-        root.articleError = "Parse error: " + e
+        root.articleError = root.tr("error.parseError", { error: e })
         root.articleLoading = false
       } else root.articleLoading = false
     }
@@ -593,7 +609,7 @@ Item {
     for (var k in root.readIds) if (k !== article.id) next[k] = root.readIds[k]
     root.readIds = next
     persistReadIds()
-    root.showToast("Marked unread")
+    root.showToast(root.tr("toast.markedUnread"))
   }
   function markAllRead() {
     var next = {}
@@ -601,7 +617,7 @@ Item {
     for (var i = 0; i < root.filtered.length; i++) next[root.filtered[i].id] = true
     root.readIds = next
     persistReadIds()
-    root.showToast("Marked " + root.filtered.length + " stories read")
+    root.showToast(root.tr("toast.markedNRead", { n: root.filtered.length }))
   }
 
   function persistReadIds() {
@@ -625,14 +641,14 @@ Item {
   function copyLink(article) {
     if (!article || !article.link) return
     Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(article.link) + " | wl-copy"])
-    root.showToast("Link copied")
+    root.showToast(root.tr("toast.linkCopied"))
   }
 
   function shareArticle(article) {
     if (!article || !article.link) return
     Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(article.link) + " | wl-copy; notify-send -a 'News Reader' 'Shared — link copied' " + Util.shellQuote(article.title) + " 2>/dev/null || true"])
     root.markRead(article)
-    root.showToast("Shared — link copied")
+    root.showToast(root.tr("toast.sharedLinkCopied"))
   }
 
   function selectNext(delta) {
@@ -674,6 +690,10 @@ Item {
     var n = parseInt(String(t || "").trim(), 10)
     if (isFinite(n) && n > 0) root.autoRefreshIntervalMs = n
   }
+  function applyLocale(t) {
+    var l = String(t || "").trim()
+    if (I18n.Locales.indexOf(l) !== -1) root.locale = l
+  }
 
   // one sequential bounded reader for all writable state files
   Process {
@@ -693,6 +713,7 @@ Item {
   function reloadFontSize()     { root.readStateFile(root.fontSizePath, root.applyFontSize) }
   function reloadReadingTheme() { root.readStateFile(root.readingThemePath, root.applyReadingTheme) }
   function reloadAutoRefresh()  { root.readStateFile(root.autoRefreshPath, root.applyAutoRefresh) }
+  function reloadLocale()       { root.readStateFile(root.localePath, root.applyLocale) }
   function reloadFeedsState()   { root.readStateFile(root.feedsPath, root.applyFeedsState) }
 
   FileView {
@@ -725,6 +746,11 @@ Item {
     path: root.autoRefreshPath
     preload: false
   }
+  FileView {
+    id: localeFile
+    path: root.localePath
+    preload: false
+  }
   FileView { id: exportFile; path: root.exportJsonPath; preload: false }
   FileView { id: exportFileOpml; path: root.exportOpmlPath; preload: false }
   FileView {
@@ -735,7 +761,7 @@ Item {
     }
     onLoadFailed: {}
   }
-  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); root.reloadAutoRefresh(); suggestedFeedsFileView.reload() }
+  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); root.reloadAutoRefresh(); root.reloadLocale(); suggestedFeedsFileView.reload() }
   onUnreadCountChanged: {
     if (unreadFile) unreadFile.setText(String(root.unreadCount))
   }
@@ -773,7 +799,7 @@ Item {
       var a = root.selectedArticle
       if (a && !root.readIds[a.id]) {
         root.markRead(a)
-        root.showToast("Marked read")
+        root.showToast(root.tr("toast.markedRead"))
       }
     }
   }
@@ -858,7 +884,7 @@ Item {
           if ((event.modifiers & Qt.ControlModifier) && (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal)) { root.adjustFont(1); event.accepted = true; return }
           if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Minus) { root.adjustFont(-1); event.accepted = true; return }
           if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_0) { root.resetFont(); event.accepted = true; return }
-          if (event.key === Qt.Key_U && !searchField.activeFocus) { root.showUnreadOnly = !root.showUnreadOnly; root.selectedIndex = 0; root.showToast(root.showUnreadOnly ? "Unread only" : "All stories"); event.accepted = true; return }
+          if (event.key === Qt.Key_U && !searchField.activeFocus) { root.showUnreadOnly = !root.showUnreadOnly; root.selectedIndex = 0; root.showToast(root.showUnreadOnly ? root.tr("toast.unreadOnlyOn") : root.tr("toast.unreadOnlyOff")); event.accepted = true; return }
           if (event.key === Qt.Key_Escape) {
             if (root.isFullScreen) { root.isFullScreen = false; event.accepted = true }
             else { root.dismiss(); event.accepted = true }
@@ -902,14 +928,14 @@ Item {
               width: parent.width - headerActions.width - Style.spacing.md
               spacing: 2
               Text {
-                text: "News Reader"
+                text: root.tr("toolbar.title")
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
                 font.bold: true
               }
               Text {
-                text: root.loading ? "Refreshing…" : (root.filtered.length + " stories" + (root.unreadCount > 0 ? " · " + root.unreadCount + " unread" : "") + (root.selectedFeedId !== root.allFeedsId ? " · " + root.feedTitle(root.selectedFeedId) : ""))
+                text: root.loading ? root.tr("toolbar.statusRefreshing") : (root.filtered.length + " " + root.tr(root.filtered.length === 1 ? "toolbar.statusStory" : "toolbar.statusStories") + (root.unreadCount > 0 ? " · " + root.unreadCount + " " + root.tr("toolbar.statusUnread") : "") + (root.selectedFeedId !== root.allFeedsId ? " · " + root.feedTitle(root.selectedFeedId) : ""))
                 color: root.foreground
                 opacity: 0.6
                 font.family: root.fontFamily
@@ -943,7 +969,7 @@ Item {
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.refresh()
                 }
-                PanelToolTip { visible: refreshHover.containsMouse; text: "Refresh feeds (r)" }
+                PanelToolTip { visible: refreshHover.containsMouse; text: root.tr("toolbar.tooltipRefresh") }
               }
 
               // mark all read
@@ -954,7 +980,7 @@ Item {
                 border.width: 1; border.color: root.foreground; opacity: 0.12
                 Text {
                   anchors.centerIn: parent
-                  text: "Mark read"
+                  text: root.tr("toolbar.markRead")
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -987,7 +1013,7 @@ Item {
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.toggleSettings()
                 }
-                PanelToolTip { visible: settingsHover.containsMouse; text: "Feed settings" }
+                PanelToolTip { visible: settingsHover.containsMouse; text: root.tr("toolbar.tooltipSettings") }
               }
 
               // fullscreen — beside X
@@ -1009,7 +1035,7 @@ Item {
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.toggleFullScreen()
                 }
-                PanelToolTip { visible: fsHover.containsMouse; text: root.isFullScreen ? "Exit fullscreen (F11)" : "Fullscreen (F11)" }
+                PanelToolTip { visible: fsHover.containsMouse; text: root.isFullScreen ? root.tr("toolbar.tooltipFullscreenExit") : root.tr("toolbar.tooltipFullscreenEnter") }
               }
 
               // close
@@ -1031,7 +1057,7 @@ Item {
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.dismiss()
                 }
-                PanelToolTip { visible: closeHover.containsMouse; text: "Close (Esc)" }
+                PanelToolTip { visible: closeHover.containsMouse; text: root.tr("toolbar.tooltipClose") }
               }
             }
           }
@@ -1100,7 +1126,7 @@ Item {
                   anchors.leftMargin: 16
                   anchors.verticalCenter: parent.verticalCenter
                   visible: root.filterText.length === 0 && !searchField.activeFocus
-                  text: "Search headlines or source…  ( / )"
+                  text: root.tr("search.placeholder")
                   color: root.foreground
                   opacity: 0.45
                   font.family: root.fontFamily
@@ -1152,7 +1178,7 @@ Item {
                     anchors.centerIn: parent
                     text: {
                       var c = NewsModel.feedUnreadCount(root.articles, root.allFeedsId, root.readIds)
-                      return c > 0 ? "All · " + c : "All"
+                      return c > 0 ? root.tr("chips.all") + " · " + c : root.tr("chips.all")
                     }
                     color: root.selectedFeedId === root.allFeedsId ? root.background : root.foreground
                     font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: root.selectedFeedId === root.allFeedsId
@@ -1169,11 +1195,11 @@ Item {
                   Text {
                     id: unreadChipText
                     anchors.centerIn: parent
-                    text: root.showUnreadOnly ? "Unread ✓" : "Unread"
+                    text: root.showUnreadOnly ? root.tr("chips.unreadOn") : root.tr("chips.unread")
                     color: root.showUnreadOnly ? root.background : root.foreground
                     font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: root.showUnreadOnly
                   }
-                  MouseArea { id: unreadHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.showUnreadOnly = !root.showUnreadOnly; root.selectedIndex = 0; root.showToast(root.showUnreadOnly ? "Unread only" : "All stories") } }
+                  MouseArea { id: unreadHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.showUnreadOnly = !root.showUnreadOnly; root.selectedIndex = 0; root.showToast(root.showUnreadOnly ? root.tr("toast.unreadOnlyOn") : root.tr("toast.unreadOnlyOff")) } }
                 }
 
                 Repeater {
@@ -1294,7 +1320,7 @@ Item {
                 }
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: "Fetching feeds…"
+                  text: root.tr("list.loading")
                   color: root.foreground
                   opacity: 0.45
                   font.family: root.fontFamily
@@ -1307,7 +1333,7 @@ Item {
                 spacing: 8
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: root.errorText ? "⚠  " + root.errorText : "No stories match"
+                  text: root.errorText ? "⚠  " + root.errorText : root.tr("list.noMatch")
                   color: root.errorText ? Color.urgent : root.foreground
                   opacity: 0.8
                   font.family: root.fontFamily
@@ -1319,7 +1345,7 @@ Item {
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
                   visible: !root.errorText
-                  text: "Try another feed or clear search"
+                  text: root.tr("list.tryAnother")
                   color: root.foreground
                   opacity: 0.45
                   font.family: root.fontFamily
@@ -1334,7 +1360,7 @@ Item {
                     color: clearSearchHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.12)
                     border.width: 1; border.color: Util.alpha(Color.accent, 0.3)
                     visible: root.filterText.length > 0 || root.showUnreadOnly || root.selectedFeedId !== root.allFeedsId
-                    Text { anchors.centerIn: parent; text: "Clear filters"; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                    Text { anchors.centerIn: parent; text: root.tr("list.clearFilters"); color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                     MouseArea { id: clearSearchHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.filterText = ""; if (searchField) searchField.text = ""; root.showUnreadOnly = false; root.selectedFeedId = root.allFeedsId; root.selectedIndex = 0 } }
                   }
                   Rectangle {
@@ -1342,7 +1368,7 @@ Item {
                     color: retryHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
                     border.width: 1; border.color: Util.alpha(root.foreground, 0.14)
                     visible: root.errorText !== ""
-                    Text { anchors.centerIn: parent; text: "Retry"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                    Text { anchors.centerIn: parent; text: root.tr("list.retry"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                     MouseArea { id: retryHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.refresh() }
                   }
                 }
@@ -1502,7 +1528,7 @@ Item {
                 visible: root.filtered.length > 0
                 Text {
                   anchors.centerIn: parent
-                  text: "j/k or ↑↓ navigate · Enter open · Ctrl+C copy link · r refresh · / search"
+                  text: root.tr("list.footerHint")
                   color: root.foreground
                   opacity: 0.35
                   font.family: root.fontFamily
@@ -1621,7 +1647,7 @@ Item {
                     font.pixelSize: Style.font.caption
                   }
                   Text {
-                    text: "· " + NewsModel.readTimeMins(root.articleBody || (root.selectedArticle ? root.selectedArticle.description : "")) + " min"
+                    text: "· " + NewsModel.readTimeMins(root.articleBody || (root.selectedArticle ? root.selectedArticle.description : "")) + " " + root.tr("detail.min")
                     color: root.readingFg
                     opacity: 0.5
                     font.family: root.fontFamily
@@ -1629,7 +1655,7 @@ Item {
                   }
                   Text {
                     visible: root.selectedArticle && root.readIds[root.selectedArticle.id]
-                    text: "· read"
+                    text: "· " + root.tr("detail.read")
                     color: root.readingFg
                     opacity: markUnreadHover.containsMouse ? 0.8 : 0.45
                     font.family: root.fontFamily
@@ -1643,7 +1669,7 @@ Item {
                       cursorShape: Qt.PointingHandCursor
                       onClicked: if (root.selectedArticle) root.markUnread(root.selectedArticle)
                     }
-                    PanelToolTip { visible: markUnreadHover.containsMouse; text: "Mark as unread" }
+                    PanelToolTip { visible: markUnreadHover.containsMouse; text: root.tr("detail.markUnreadTooltip") }
                   }
                   Text {
                     width: parent.width - 160
@@ -1665,7 +1691,7 @@ Item {
                   visible: root.articleLoading || root.articleError !== ""
                   spacing: 6
                   Text {
-                    text: root.articleLoading ? "⟳  Loading full article…" : (root.articleError ? "⚠  " + root.articleError : "")
+                    text: root.articleLoading ? "⟳  " + root.tr("detail.loadingArticle") : (root.articleError ? "⚠  " + root.articleError : "")
                     color: root.articleError ? Color.urgent : root.readingFg
                     opacity: root.articleLoading ? 0.7 : 0.85
                     font.family: root.fontFamily
@@ -1675,7 +1701,7 @@ Item {
                   }
                   Text {
                     visible: root.articleError !== ""
-                    text: "Retry"
+                    text: root.tr("detail.retry")
                     color: Color.accent
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -1718,7 +1744,7 @@ Item {
                     text: {
                       if (!root.selectedArticle) return ""
                       if (root.articleBody && root.articleBody.length > 40) return root.articleBody
-                      return root.selectedArticle.description || "No summary available for this story. Open it to read the full article."
+                      return root.selectedArticle.description || root.tr("detail.noSummary")
                     }
                     color: root.readingFg
                     opacity: root.articleLoading ? 0.6 : 0.85
@@ -1741,7 +1767,7 @@ Item {
                     color: openHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.92)
                     Text {
                       anchors.centerIn: parent
-                      text: "Open story  ↗"
+                      text: root.tr("detail.openStory")
                       color: root.background
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -1765,7 +1791,7 @@ Item {
                     border.color: Util.alpha(root.foreground, 0.12)
                     Text {
                       anchors.centerIn: parent
-                      text: "Copy link"
+                      text: root.tr("detail.copyLink")
                       color: root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -1788,7 +1814,7 @@ Item {
                     border.color: Util.alpha(root.foreground, 0.12)
                     Text {
                       anchors.centerIn: parent
-                      text: "Share"
+                      text: root.tr("detail.share")
                       color: root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -1800,7 +1826,7 @@ Item {
                       cursorShape: Qt.PointingHandCursor
                       onClicked: if (root.selectedArticle) root.shareArticle(root.selectedArticle)
                     }
-                    PanelToolTip { visible: shareHover.containsMouse; text: "Copy link + notify (Ctrl+Shift+S)" }
+                    PanelToolTip { visible: shareHover.containsMouse; text: root.tr("detail.shareTooltip") }
                   }
                 }
 
@@ -1808,12 +1834,13 @@ Item {
 
                 Text {
                   width: parent.width
-                  text: "Feeds are fetched live via RSS. Add feeds in Settings (⚙) or import OPML/JSON — see suggested-feeds.json for examples."
+                  text: root.tr("detail.footerNote")
                   color: root.readingFg
                   opacity: 0.35
                   font.family: root.fontFamily
                   font.pixelSize: 10
                   wrapMode: Text.WordWrap
+                  horizontalAlignment: root.isRtl ? Text.AlignRight : Text.AlignLeft
                 }
               }
 
@@ -1824,7 +1851,7 @@ Item {
                 visible: root.selectedArticle === null
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: "No story selected"
+                  text: root.tr("detail.noneSelected")
                   color: root.readingFg
                   opacity: 0.5
                   font.family: root.fontFamily
@@ -1832,7 +1859,7 @@ Item {
                 }
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: root.filtered.length === 0 ? "Fetch or adjust filters" : "Select a story on the left"
+                  text: root.filtered.length === 0 ? root.tr("detail.fetchOrAdjust") : root.tr("detail.selectStory")
                   color: root.readingFg
                   opacity: 0.35
                   font.family: root.fontFamily
@@ -1872,7 +1899,7 @@ Item {
               spacing: 8
               Text {
                 width: parent.width - 40
-                text: "News Reader Settings · " + root.feeds.length + " feeds"
+                text: root.tr("settings.titlePrefix") + " · " + root.tr("settings.feedsCount", { n: root.feeds.length })
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.subtitle
@@ -1888,7 +1915,7 @@ Item {
               }
             }
             // ---- Feeds section ----
-            Text { text: "Feeds"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Text { text: root.tr("settings.feeds"); color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
             // current feeds
             Column {
               id: feedListCol
@@ -1975,14 +2002,14 @@ Item {
                             onEditingFinished: root.setFeedCategory(modelData.id, text)
                             Keys.onReturnPressed: folderField.focus = false
                           }
-                          PanelToolTip { visible: folderField.activeFocus; text: "Folder / category" }
+                          PanelToolTip { visible: folderField.activeFocus; text: root.tr("settings.folderTooltip") }
                         }
                         Rectangle {
                           width: 56; height: 28; radius: 6
                           anchors.verticalCenter: parent.verticalCenter
                           color: delHover.containsMouse ? Util.alpha(Color.urgent, 0.14) : Util.alpha(Color.urgent, 0.08)
                           border.width: 1; border.color: Util.alpha(Color.urgent, 0.2)
-                          Text { anchors.centerIn: parent; text: "Remove"; color: Color.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                          Text { anchors.centerIn: parent; text: root.tr("settings.remove"); color: Color.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                           MouseArea { id: delHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.removeFeed(modelData.id) }
                         }
                       }
@@ -1995,15 +2022,16 @@ Item {
             Text {
               visible: root.feeds.length === 0
               width: parent.width
-              text: "No feeds yet — add one below or pick a suggestion."
+              text: root.tr("settings.noFeeds")
               color: root.foreground; opacity: 0.5
               font.family: root.fontFamily; font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
+              horizontalAlignment: root.isRtl ? Text.AlignRight : Text.AlignLeft
             }
             // suggested feeds — bundled starter list, hidden once fully added
             Text {
               visible: suggestedFeedsFlow.count > 0
-              text: "Suggested feeds"
+              text: root.tr("settings.suggested")
               color: root.foreground
               opacity: 0.9
               font.family: root.fontFamily
@@ -2047,7 +2075,7 @@ Item {
               }
             }
             // add new feed
-            Text { text: "Add RSS feed"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Text { text: root.tr("settings.addFeed"); color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
             Row {
               width: parent.width
               spacing: 8
@@ -2106,7 +2134,7 @@ Item {
                   anchors.leftMargin: 8
                   anchors.verticalCenter: parent.verticalCenter
                   visible: addTitleField.text.length === 0 && !addTitleField.activeFocus
-                  text: "Title (optional)"
+                  text: root.tr("settings.titlePlaceholder")
                   color: root.foreground; opacity: 0.35
                   font.family: root.fontFamily; font.pixelSize: Style.font.caption
                 }
@@ -2117,7 +2145,7 @@ Item {
                 height: 32
                 radius: Style.cornerRadius
                 color: addHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
-                Text { anchors.centerIn: parent; text: "Add"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+                Text { anchors.centerIn: parent; text: root.tr("settings.add"); color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
                 MouseArea { id: addHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.addFeed() }
               }
             }
@@ -2130,7 +2158,7 @@ Item {
               font.family: root.fontFamily; font.pixelSize: Style.font.caption
             }
             // import / export
-            Text { text: "Import / Export"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Text { text: root.tr("settings.importExport"); color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
             Rectangle {
               width: parent.width
               height: 72
@@ -2160,7 +2188,7 @@ Item {
                 anchors.top: parent.top
                 anchors.margins: 10
                 visible: importField.text.length === 0
-                text: "Paste JSON array or OPML <outline> here for import…"
+                text: root.tr("settings.importPlaceholder")
                 color: root.foreground; opacity: 0.3
                 font.family: root.fontFamily; font.pixelSize: Style.font.caption
               }
@@ -2173,7 +2201,7 @@ Item {
                 height: 30
                 radius: Style.cornerRadius
                 color: importHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
-                Text { anchors.centerIn: parent; text: "Import"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                Text { anchors.centerIn: parent; text: root.tr("settings.import"); color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 MouseArea { id: importHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.importFeeds() }
               }
               Rectangle {
@@ -2182,7 +2210,7 @@ Item {
                 radius: Style.cornerRadius
                 color: exportJsonHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
                 border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-                Text { anchors.centerIn: parent; text: "Export JSON"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                Text { anchors.centerIn: parent; text: root.tr("settings.exportJson"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                 MouseArea { id: exportJsonHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsJson() }
               }
               Rectangle {
@@ -2191,15 +2219,50 @@ Item {
                 radius: Style.cornerRadius
                 color: exportOpmlHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
                 border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-                Text { anchors.centerIn: parent; text: "Export OPML"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                Text { anchors.centerIn: parent; text: root.tr("settings.exportOpml"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                 MouseArea { id: exportOpmlHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsOpml() }
               }
             }
             Rectangle { width: parent.width; height: 1; color: Util.alpha(root.foreground, 0.08) }
             // ---- Preferences section ----
-            Text { text: "Preferences"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Text { text: root.tr("settings.preferences"); color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            // language
+            Text { text: root.tr("settings.language"); color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Flow {
+              width: parent.width
+              spacing: 6
+              Repeater {
+                model: I18n.Locales
+                delegate: Rectangle {
+                  required property var modelData
+                  property bool isSel: root.locale === modelData
+                  width: langLabel.implicitWidth + 18
+                  height: 26
+                  radius: 13
+                  color: isSel ? Color.accent : (langHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06))
+                  border.width: 1
+                  border.color: isSel ? Color.accent : Util.alpha(root.foreground, 0.12)
+                  Text {
+                    id: langLabel
+                    anchors.centerIn: parent
+                    text: I18n.LocaleNames[modelData]
+                    color: isSel ? Color.background : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: isSel
+                  }
+                  MouseArea {
+                    id: langHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setLocale(modelData)
+                  }
+                }
+              }
+            }
             // auto-refresh interval
-            Text { text: "Auto-refresh interval"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Text { text: root.tr("settings.autoRefreshInterval"); color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             Flow {
               width: parent.width
               spacing: 6
@@ -2218,7 +2281,7 @@ Item {
                   Text {
                     id: arLabel
                     anchors.centerIn: parent
-                    text: modelData.label
+                    text: root.tr("interval." + modelData.key)
                     color: isSel ? Color.background : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -2235,14 +2298,14 @@ Item {
               }
             }
             // reading theme — consistent chip style (#8)
-            Text { text: "Reading theme"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Text { text: root.tr("settings.readingTheme"); color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             Flow {
               width: parent.width
               spacing: 6
               Repeater {
                 model: [
-                  {key:"auto", label:"Auto"}, {key:"contrast", label:"Contrast"}, {key:"light", label:"Light"},
-                  {key:"dark", label:"Dark"}, {key:"sepia", label:"Sepia"}, {key:"grey", label:"Grey"}
+                  {key:"auto"}, {key:"contrast"}, {key:"light"},
+                  {key:"dark"}, {key:"sepia"}, {key:"grey"}
                 ]
                 delegate: Rectangle {
                   required property var modelData
@@ -2266,7 +2329,7 @@ Item {
                     }
                     Text {
                       id: rtLabel
-                      text: modelData.label
+                      text: root.tr("theme." + modelData.key)
                       color: isSel ? Color.background : root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
@@ -2284,7 +2347,7 @@ Item {
               }
             }
             // font size
-            Text { text: "Font size"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Text { text: root.tr("settings.fontSize"); color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             Row {
               width: parent.width
               spacing: 8
@@ -2313,15 +2376,16 @@ Item {
                 width: 54; height: 26; radius: 13
                 color: fResetHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06)
                 border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-                Text { anchors.centerIn: parent; text: "Reset"; color: root.foreground; font.pixelSize: Style.font.caption; font.family: root.fontFamily }
+                Text { anchors.centerIn: parent; text: root.tr("fontctl.reset"); color: root.foreground; font.pixelSize: Style.font.caption; font.family: root.fontFamily }
                 MouseArea { id: fResetHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.resetFont() }
               }
             }
             Text {
               width: parent.width
-              text: "These also apply to the reading view (article header)."
+              text: root.tr("settings.fontSizeNote")
               color: root.foreground; opacity: 0.35
               font.family: root.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
+              horizontalAlignment: root.isRtl ? Text.AlignRight : Text.AlignLeft
             }
             Text {
               width: parent.width
@@ -2335,9 +2399,10 @@ Item {
             }
             Text {
               width: parent.width
-              text: "Tip: JSON is an array of {title,url}. OPML from Feedly/Inoreader works too. Exports go to ~/Downloads + clipboard."
+              text: root.tr("settings.tipImportExport")
               color: root.foreground; opacity: 0.35
               font.family: root.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
+              horizontalAlignment: root.isRtl ? Text.AlignRight : Text.AlignLeft
             }
           }
         }
@@ -2433,7 +2498,7 @@ Item {
         Column {
           width: parent.width
           spacing: 12
-          Text { text: "News Reader — Shortcuts"; color: Color.menu.text; font.family: root.fontFamily; font.pixelSize: Style.font.title; font.bold: true }
+          Text { text: root.tr("shortcuts.title"); color: Color.menu.text; font.family: root.fontFamily; font.pixelSize: Style.font.title; font.bold: true }
           Grid {
             columns: 2
             columnSpacing: 16
@@ -2441,27 +2506,27 @@ Item {
             width: parent.width
             Repeater {
               model: [
-                {k:"j / ↓", v:"Next story"}, {k:"k / ↑", v:"Prev story"},
-                {k:"Enter", v:"Open story"}, {k:"/", v:"Focus search"},
-                {k:"Ctrl+C", v:"Copy link"}, {k:"Ctrl+Shift+S / Share", v:"Share"},
-                {k:"r", v:"Refresh"}, {k:"u", v:"Toggle unread"},
-                {k:"Ctrl + / - / 0", v:"Font + / - / reset"}, {k:"F11 / ⛶", v:"Fullscreen"},
-                {k:"?", v:"Toggle help"}, {k:"Esc", v:"Close / exit fullscreen"}
+                {k:"j / ↓", vKey:"shortcuts.nextStory"}, {k:"k / ↑", vKey:"shortcuts.prevStory"},
+                {k:"Enter", vKey:"shortcuts.openStory"}, {k:"/", vKey:"shortcuts.focusSearch"},
+                {k:"Ctrl+C", vKey:"detail.copyLink"}, {k:"Ctrl+Shift+S / Share", vKey:"detail.share"},
+                {k:"r", vKey:"shortcuts.refresh"}, {k:"u", vKey:"shortcuts.toggleUnread"},
+                {k:"Ctrl + / - / 0", vKey:"shortcuts.fontAdjust"}, {k:"F11 / ⛶", vKey:"shortcuts.fullscreen"},
+                {k:"?", vKey:"shortcuts.toggleHelp"}, {k:"Esc", vKey:"shortcuts.closeOrExit"}
               ]
               delegate: Row {
                 required property var modelData
                 spacing: 8
                 width: parent.width / 2 - 8
                 Text { width: 110; text: modelData.k; color: Color.accent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; elide: Text.ElideRight }
-                Text { text: modelData.v; color: Color.menu.text; opacity: 0.85; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; width: parent.width - 118 }
+                Text { text: root.tr(modelData.vKey); color: Color.menu.text; opacity: 0.85; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; width: parent.width - 118 }
               }
             }
           }
-          Text { width: parent.width; text: "Tip: Drag the center splitter to resize list vs reader. Click thumbnail to open image. Chip counts show unread."; color: Color.menu.text; opacity: 0.55; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { width: parent.width; text: root.tr("shortcuts.tip"); color: Color.menu.text; opacity: 0.55; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; horizontalAlignment: root.isRtl ? Text.AlignRight : Text.AlignLeft }
           Rectangle {
             width: parent.width; height: 32; radius: Style.cornerRadius
             color: Color.accent
-            Text { anchors.centerIn: parent; text: "Got it — Esc to close"; color: Color.menu.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+            Text { anchors.centerIn: parent; text: root.tr("shortcuts.gotIt"); color: Color.menu.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.helpVisible = false }
           }
         }

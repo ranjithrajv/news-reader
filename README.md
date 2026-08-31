@@ -10,6 +10,7 @@ Press the bar button (📰) or summon via IPC to open a centered card:
 - **Scrim + keyboard layer** — `WlrLayershell.layer: Overlay`, `Exclusive` focus, `Esc` dismisses, click outside dismisses
 - **Read tracking** — read ids persisted at `~/.local/state/omarchy/news-reader-read.json` (800-entry cap), unread dot + “Mark read”
 - **Auto refresh** — configurable Hourly (default) / Daily / Weekly in Settings, persisted, + minute-granular “2h ago” labels
+- **Language** — English, Español, Deutsch, 中文, العربية; auto-detected from the system locale, switchable in Settings → Preferences (Arabic renders right-aligned; layout stays LTR)
 
 ## Install
 
@@ -23,7 +24,7 @@ Local dev (this repo is a plugin checkout already):
 
 ```sh
 mkdir -p ~/.config/omarchy/plugins/ranjithraj.news-reader
-cp manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js suggested-feeds.json ~/.config/omarchy/plugins/ranjithraj.news-reader/
+cp manifest.json Overlay.qml BarWidget.qml NewsModel.js Config.js I18n.js suggested-feeds.json ~/.config/omarchy/plugins/ranjithraj.news-reader/
 omarchy-shell shell rescanPlugins
 omarchy plugin validate ~/.config/omarchy/plugins/ranjithraj.news-reader
 qmllint -I /usr/share/omarchy/shell ~/.config/omarchy/plugins/ranjithraj.news-reader/Overlay.qml ~/.config/omarchy/plugins/ranjithraj.news-reader/BarWidget.qml
@@ -57,6 +58,7 @@ omarchy-shell shell toggle ranjithraj.news-reader '{}'
 - `BarWidget.qml` — `WidgetButton` (`\uF1EA`) → `shell summon`
 - `NewsModel.js` — RSS/Atom parser (`<item>`/`<entry>`, CDATA, `content:encoded`, link href fallback), `timeAgo`, `filterArticles` (no hard-coded feeds)
 - `Config.js` — shared state-dir/path/sentinel config single source for Overlay + BarWidget
+- `I18n.js` — UI string tables + lookup (`t()`) for English, Spanish, German, Chinese, Arabic; locale auto-detected from the system, overridable in Settings → Preferences → Language
 - `suggested-feeds.json` — example feeds to import (not auto-loaded); paste a filtered JSON array into Settings → Import
 
 ## Theming

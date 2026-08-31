@@ -42,6 +42,16 @@ export {
 };
 `;
 
+const i18nExports = `
+export {
+  Locales,
+  LocaleNames,
+  isRtl,
+  resolveLocale,
+  t,
+};
+`;
+
 export default defineConfig({
   plugins: [
     {
@@ -55,6 +65,10 @@ export default defineConfig({
           const stripped = code.replace(/^\s*\.pragma library\s*\n/, "");
           return stripped + configExports;
         }
+        if (id.endsWith("I18n.js")) {
+          const stripped = code.replace(/^\s*\.pragma library\s*\n/, "");
+          return stripped + i18nExports;
+        }
         return null;
       },
     },
@@ -64,7 +78,7 @@ export default defineConfig({
     environment: "node",
     coverage: {
       provider: "v8",
-      include: ["NewsModel.js", "Config.js"],
+      include: ["NewsModel.js", "Config.js", "I18n.js"],
       exclude: ["tests/**", "vitest.config.js"],
       reportsDirectory: "./coverage",
       reporter: ["text", "lcov", "html"],

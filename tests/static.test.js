@@ -63,6 +63,21 @@ describe("static assets", () => {
     expect(qml).not.toContain('interval: 4000;');
   });
 
+  it("Overlay.qml and BarWidget.qml route user-facing text through I18n", () => {
+    const overlay = fs.readFileSync(path.join(root, "Overlay.qml"), "utf-8");
+    const bar = fs.readFileSync(path.join(root, "BarWidget.qml"), "utf-8");
+    expect(overlay).toContain('import "I18n.js" as I18n');
+    expect(overlay).toContain('function tr(key, vars)');
+    expect(overlay).toContain('readonly property bool isRtl');
+    expect(bar).toContain('import "I18n.js" as I18n');
+    expect(bar).toContain('function tr(key, vars)');
+    // a few old hard-coded English UI strings should be gone, replaced by tr() lookups
+    expect(overlay).not.toContain('text: "News Reader"');
+    expect(overlay).not.toContain('"Mark read"');
+    expect(overlay).not.toContain('"Feed added"');
+    expect(bar).not.toContain('"News Reader — summon overlay"');
+  });
+
   it("NewsModel.js uses Limits for article guards", () => {
     const js = fs.readFileSync(path.join(root, "NewsModel.js"), "utf-8");
     expect(js).toContain('MIN_ARTICLE_LENGTH');
