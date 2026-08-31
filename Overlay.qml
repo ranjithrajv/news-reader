@@ -21,7 +21,16 @@ Item {
   readonly property string fontSizePath: stateDir + "news-reader-font.json"
   readonly property string feedsPath: stateDir + "news-reader-feeds.json"
   readonly property string readingThemePath: stateDir + "news-reader-reading-theme.json"
+  readonly property string autoRefreshPath: stateDir + "news-reader-autorefresh.json"
   readonly property string suggestedFeedsPath: Qt.resolvedUrl("suggested-feeds.json")
+
+  // --- Auto-refresh interval options — hourly (60m) is the default ---
+  readonly property var autoRefreshOptions: [
+    { min: 60,       label: "Hourly" },
+    { min: 60 * 24,  label: "Daily" },
+    { min: 60 * 24 * 7, label: "Weekly" }
+  ]
+  readonly property int autoRefreshDefaultMs: 60 * 60 * 1000
 
   // --- Fetch config (2) ---
   readonly property int feedFetchTimeoutSec: 8
@@ -33,7 +42,7 @@ Item {
   readonly property string curlAcceptLang: "en-US,en;q=0.9"
 
   // --- Timing config (3) ---
-  readonly property int autoRefreshIntervalMs: 10 * 60 * 1000
+  property int autoRefreshIntervalMs: autoRefreshDefaultMs
   readonly property int timeAgoIntervalMs: 60 * 1000
   readonly property int autoMarkDelayMs: 1500
   readonly property int toastDurationMs: 2200
@@ -147,6 +156,7 @@ Item {
   property string importText: ""
   property string settingsError: ""
   property string settingsInfo: ""
+  property string addFeedError: ""
   property var pendingUndoFeed: null
   property var pendingUndoArticles: []
   property var pendingUndoCache: ({})
@@ -197,6 +207,14 @@ Item {
     readingThemeFile.setText(t)
     showToast("Reading theme: " + t.charAt(0).toUpperCase() + t.slice(1))
   }
+  function setAutoRefresh(ms) {
+    if (!isFinite(ms) || ms <= 0) return
+    root.autoRefreshIntervalMs = ms
+    autoRefreshFile.setText(String(ms))
+    autoRefresh.restart()
+    var min = Math.round(ms / 60000)
+    showToast("Auto-refresh: " + (min >= 60 ? (min / 60) + "h" : min + "m"))
+  }
   function openLightbox(url) { if (!url) return; root.lightboxImage = url; root.lightboxVisible = true }
   function closeLightbox() { root.lightboxVisible = false }
   function setImportText(t) { root.importText = t || "" }
@@ -213,12 +231,12 @@ Item {
   function addFeed() {
     var url = String(root.newFeedUrl||"").trim()
     var title = String(root.newFeedTitle||"").trim()
-    root.settingsError = ""; root.settingsInfo = ""
-    if (!url) { root.settingsError = "URL required"; return }
+    root.settingsError = ""; root.settingsInfo = ""; root.addFeedError = ""
+    if (!url) { root.addFeedError = "URL required"; return }
     if (url.indexOf("http") !== 0) url = "https://" + url
-    try { var u = new URL(url); if (!u.hostname) throw "bad url" } catch(e){ root.settingsError = "Invalid URL"; return }
-    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === url) { root.settingsError = "Feed already exists"; return }
-    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.settingsError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
+    try { var u = new URL(url); if (!u.hostname) throw "bad url" } catch(e){ root.addFeedError = "Invalid URL"; return }
+    for (var i=0;i<root.feeds.length;i++) if (root.feeds[i].url === url) { root.addFeedError = "Feed already exists"; return }
+    if (root.feeds.length >= NewsModel.Limits.MAX_FEEDS) { root.addFeedError = "Feed limit reached (" + NewsModel.Limits.MAX_FEEDS + ")"; return }
     var id = url.replace(/[^a-zA-Z0-9]/g,"_").slice(0,24) + "_" + Date.now().toString(36)
     if (!title) {
       try { title = new URL(url).hostname.replace(/^www\./,"") } catch(e){ title = "Feed " + (root.feeds.length+1) }
@@ -636,6 +654,10 @@ Item {
     var s = String(t || "").trim()
     if (s in root.readingPalette || s === "auto") root.readingTheme = s
   }
+  function applyAutoRefresh(t) {
+    var n = parseInt(String(t || "").trim(), 10)
+    if (isFinite(n) && n > 0) root.autoRefreshIntervalMs = n
+  }
 
   // one sequential bounded reader for all writable state files
   Process {
@@ -654,6 +676,7 @@ Item {
   function reloadReadIds()      { root.readStateFile(root.readIdsPath, root.applyReadIds) }
   function reloadFontSize()     { root.readStateFile(root.fontSizePath, root.applyFontSize) }
   function reloadReadingTheme() { root.readStateFile(root.readingThemePath, root.applyReadingTheme) }
+  function reloadAutoRefresh()  { root.readStateFile(root.autoRefreshPath, root.applyAutoRefresh) }
   function reloadFeedsState()   { root.readStateFile(root.feedsPath, root.applyFeedsState) }
 
   FileView {
@@ -681,6 +704,11 @@ Item {
     path: root.readingThemePath
     preload: false
   }
+  FileView {
+    id: autoRefreshFile
+    path: root.autoRefreshPath
+    preload: false
+  }
   FileView { id: exportFile; path: root.exportJsonPath; preload: false }
   FileView { id: exportFileOpml; path: root.exportOpmlPath; preload: false }
   FileView {
@@ -691,7 +719,7 @@ Item {
     }
     onLoadFailed: {}
   }
-  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); suggestedFeedsFileView.reload() }
+  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); root.reloadAutoRefresh(); suggestedFeedsFileView.reload() }
   onUnreadCountChanged: {
     if (unreadFile) unreadFile.setText(String(root.unreadCount))
   }
@@ -1501,7 +1529,7 @@ Item {
                   width: parent.width
                   spacing: 8
                   Text {
-                    width: parent.width - themeSwatches.width - fontControls.width - 16
+                    width: parent.width
                     text: root.selectedArticle ? root.selectedArticle.feedTitle.toUpperCase() : ""
                     color: Color.accent
                     opacity: 0.9
@@ -1510,71 +1538,6 @@ Item {
                     font.bold: true
                     font.letterSpacing: 1
                     elide: Text.ElideRight
-                  }
-                  Row {
-                    id: themeSwatches
-                    spacing: 4
-                    anchors.verticalCenter: parent.verticalCenter
-                    Repeater {
-                      model: [
-                        {key:"auto", label:"Auto"}, {key:"contrast", label:"Contrast"}, {key:"light", label:"Light"},
-                        {key:"dark", label:"Dark"}, {key:"sepia", label:"Sepia"}, {key:"grey", label:"Grey"}
-                      ]
-                      delegate: Rectangle {
-                        required property var modelData
-                        property bool isSel: root.readingTheme === modelData.key
-                        property var pal: root.readingPalette[modelData.key] || null
-                        width: 16; height: 16; radius: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: pal ? pal.bg : root.background
-                        border.width: isSel ? 2 : 1
-                        border.color: isSel ? Color.accent : Util.alpha(root.foreground, 0.25)
-                        Text {
-                          visible: !pal
-                          anchors.centerIn: parent
-                          text: "A"
-                          color: root.foreground
-                          font.pixelSize: 7
-                          font.bold: true
-                          font.family: root.fontFamily
-                        }
-                        Rectangle {
-                          visible: pal !== null
-                          width: 6; height: 6; radius: 3
-                          anchors.centerIn: parent
-                          color: pal ? pal.fg : "transparent"
-                        }
-                        MouseArea {
-                          id: themeHover
-                          anchors.fill: parent
-                          hoverEnabled: true
-                          cursorShape: Qt.PointingHandCursor
-                          onClicked: root.setReadingTheme(modelData.key)
-                        }
-                        PanelToolTip { visible: themeHover.containsMouse; text: "Reading theme: " + modelData.label + (isSel ? " (current)" : "") }
-                      }
-                    }
-                  }
-                  Row {
-                    id: fontControls
-                    spacing: 4
-                    anchors.verticalCenter: parent.verticalCenter
-                    Rectangle {
-                      width: 22; height: 18; radius: 4
-                      color: fontMinusHover.containsMouse ? Util.alpha(root.foreground, 0.12) : "transparent"
-                      border.width: 1; border.color: Util.alpha(root.foreground, 0.18)
-                      Text { anchors.centerIn: parent; text: "A-"; color: root.foreground; opacity: 0.7; font.pixelSize: 9; font.family: root.fontFamily }
-                      MouseArea { id: fontMinusHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.adjustFont(-1) }
-                      PanelToolTip { visible: fontMinusHover.containsMouse; text: "Smaller text (Ctrl -)" }
-                    }
-                    Rectangle {
-                      width: 22; height: 18; radius: 4
-                      color: fontPlusHover.containsMouse ? Util.alpha(root.foreground, 0.12) : "transparent"
-                      border.width: 1; border.color: Util.alpha(root.foreground, 0.18)
-                      Text { anchors.centerIn: parent; text: "A+"; color: root.foreground; opacity: 0.7; font.pixelSize: 9; font.family: root.fontFamily }
-                      MouseArea { id: fontPlusHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.adjustFont(1) }
-                      PanelToolTip { visible: fontPlusHover.containsMouse; text: "Larger text (Ctrl +)" }
-                    }
                   }
                 }
 
@@ -1856,44 +1819,47 @@ Item {
         border.width: 1
         border.color: Util.alpha(root.foreground, 0.08)
         MouseArea { anchors.fill: parent; onClicked: {} } // block clicks to underlying list
-        Column {
+        Flickable {
+          id: settingsFlick
           anchors.fill: parent
           anchors.margins: 14
-          spacing: 10
-          // header
-          Row {
+          clip: true
+          contentHeight: settingsCol.implicitHeight
+          boundsBehavior: Flickable.StopAtBounds
+          flickableDirection: Flickable.VerticalFlick
+          Column {
+            id: settingsCol
             width: parent.width
-            spacing: 8
-            Text {
-              width: parent.width - 40
-              text: "Feed Settings · " + root.feeds.length + " feeds"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-              font.bold: true
-              elide: Text.ElideRight
+            spacing: 10
+            // header
+            Row {
+              width: parent.width
+              spacing: 8
+              Text {
+                width: parent.width - 40
+                text: "News Reader Settings · " + root.feeds.length + " feeds"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+                elide: Text.ElideRight
+              }
+              Rectangle {
+                width: 32; height: 28; radius: 6
+                color: settingsCloseHover.containsMouse ? Util.alpha(Color.urgent, 0.12) : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "✕"; color: root.foreground; font.pixelSize: 12 }
+                MouseArea { id: settingsCloseHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleSettings() }
+              }
             }
-            Rectangle {
-              width: 32; height: 28; radius: 6
-              color: settingsCloseHover.containsMouse ? Util.alpha(Color.urgent, 0.12) : Util.alpha(root.foreground, 0.06)
-              border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-              Text { anchors.centerIn: parent; text: "✕"; color: root.foreground; font.pixelSize: 12 }
-              MouseArea { id: settingsCloseHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleSettings() }
-            }
-          }
-          Rectangle { width: parent.width; height: 1; color: Util.alpha(root.foreground, 0.08) }
-          // current feeds — scrollable
-          Flickable {
-            width: parent.width
-            height: Math.min(260, contentHeight)
-            clip: true
-            contentHeight: feedListCol.implicitHeight
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.VerticalFlick
+            // ---- Feeds section ----
+            Text { text: "Feeds"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            // current feeds
             Column {
               id: feedListCol
               width: parent.width
               spacing: 6
+              visible: root.feeds.length > 0
               Repeater {
                 model: root.feeds
                 delegate: Rectangle {
@@ -1952,209 +1918,354 @@ Item {
                 }
               }
             }
-          }
-          // suggested feeds — bundled starter list, hidden once fully added
-          Text {
-            visible: suggestedFeedsFlow.count > 0
-            text: "Suggested feeds"
-            color: root.foreground
-            opacity: 0.9
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-          }
-          Flow {
-            id: suggestedFeedsFlow
-            width: parent.width
-            spacing: 6
-            property var unadded: root.suggestedFeeds.filter(function(s) {
-              return !root.feeds.some(function(f) { return f.url === s.url })
-            })
-            property int count: unadded.length
-            Repeater {
-              model: suggestedFeedsFlow.unadded
-              delegate: Rectangle {
-                required property var modelData
-                width: suggestedLabel.implicitWidth + 16
-                height: 24
-                radius: 12
-                color: suggestedHover.containsMouse ? Util.alpha(Color.accent, 0.16) : Util.alpha(root.foreground, 0.06)
-                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+            // empty state
+            Text {
+              visible: root.feeds.length === 0
+              width: parent.width
+              text: "No feeds yet — add one below or pick a suggestion."
+              color: root.foreground; opacity: 0.5
+              font.family: root.fontFamily; font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+            // suggested feeds — bundled starter list, hidden once fully added
+            Text {
+              visible: suggestedFeedsFlow.count > 0
+              text: "Suggested feeds"
+              color: root.foreground
+              opacity: 0.9
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+            Flow {
+              id: suggestedFeedsFlow
+              width: parent.width
+              spacing: 6
+              property var unadded: root.suggestedFeeds.filter(function(s) {
+                return !root.feeds.some(function(f) { return f.url === s.url })
+              })
+              property int count: unadded.length
+              Repeater {
+                model: suggestedFeedsFlow.unadded
+                delegate: Rectangle {
+                  required property var modelData
+                  width: suggestedLabel.implicitWidth + 16
+                  height: 24
+                  radius: 12
+                  color: suggestedHover.containsMouse ? Util.alpha(Color.accent, 0.16) : Util.alpha(root.foreground, 0.06)
+                  border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                  Text {
+                    id: suggestedLabel
+                    anchors.centerIn: parent
+                    text: "+ " + modelData.title
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  MouseArea {
+                    id: suggestedHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.addSuggestedFeed(modelData)
+                  }
+                  PanelToolTip { visible: suggestedHover.containsMouse; text: modelData.url }
+                }
+              }
+            }
+            // add new feed
+            Text { text: "Add RSS feed"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Row {
+              width: parent.width
+              spacing: 8
+              Rectangle {
+                width: parent.width * 0.62
+                height: 32
+                radius: Style.cornerRadius
+                color: root.addFeedError ? Util.alpha(Color.urgent, 0.10) : Style.controlFill(addUrlField.activeFocus, addUrlHover.containsMouse, root.foreground, Color.accent)
+                border.width: 1; border.color: root.addFeedError ? Color.urgent : (addUrlField.activeFocus ? Color.accent : Util.alpha(root.foreground, 0.14))
+                TextInput {
+                  id: addUrlField
+                  anchors.fill: parent
+                  anchors.leftMargin: 10; anchors.rightMargin: 10
+                  verticalAlignment: Text.AlignVCenter
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  selectByMouse: true
+                  selectionColor: Color.accent
+                  text: root.newFeedUrl
+                  onTextChanged: { root.newFeedUrl = text; if (root.addFeedError) root.addFeedError = "" }
+                  Keys.onReturnPressed: root.addFeed()
+                }
                 Text {
-                  id: suggestedLabel
-                  anchors.centerIn: parent
-                  text: "+ " + modelData.title
+                  anchors.left: parent.left
+                  anchors.leftMargin: 10
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: addUrlField.text.length === 0 && !addUrlField.activeFocus
+                  text: "https://example.com/rss.xml"
+                  color: root.foreground; opacity: 0.35
+                  font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                }
+                HoverHandler { id: addUrlHover }
+              }
+              Rectangle {
+                width: parent.width * 0.22
+                height: 32
+                radius: Style.cornerRadius
+                color: Style.controlFill(addTitleField.activeFocus, addTitleHover.containsMouse, root.foreground, Color.accent)
+                border.width: 1; border.color: addTitleField.activeFocus ? Color.accent : Util.alpha(root.foreground, 0.14)
+                TextInput {
+                  id: addTitleField
+                  anchors.fill: parent
+                  anchors.leftMargin: 8; anchors.rightMargin: 8
+                  verticalAlignment: Text.AlignVCenter
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  selectByMouse: true
+                  text: root.newFeedTitle
+                  onTextChanged: root.newFeedTitle = text
+                  Keys.onReturnPressed: root.addFeed()
+                }
+                Text {
+                  anchors.left: parent.left
+                  anchors.leftMargin: 8
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: addTitleField.text.length === 0 && !addTitleField.activeFocus
+                  text: "Title (optional)"
+                  color: root.foreground; opacity: 0.35
+                  font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                }
+                HoverHandler { id: addTitleHover }
+              }
+              Rectangle {
+                width: parent.width - (parent.width * 0.62 + parent.width * 0.22 + 16)
+                height: 32
+                radius: Style.cornerRadius
+                color: addHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
+                Text { anchors.centerIn: parent; text: "Add"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+                MouseArea { id: addHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.addFeed() }
+              }
+            }
+            // inline add-feed validation
+            Text {
+              visible: root.addFeedError !== ""
+              width: parent.width
+              text: root.addFeedError
+              color: Color.urgent
+              font.family: root.fontFamily; font.pixelSize: Style.font.caption
+            }
+            // import / export
+            Text { text: "Import / Export"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            Rectangle {
+              width: parent.width
+              height: 72
+              radius: 6
+              color: Util.alpha(root.foreground, 0.04)
+              border.width: 1; border.color: Util.alpha(root.foreground, 0.08)
+              Flickable {
+                anchors.fill: parent
+                anchors.margins: 8
+                clip: true
+                contentHeight: importField.implicitHeight
+                flickableDirection: Flickable.VerticalFlick
+                TextEdit {
+                  id: importField
+                  width: parent.width
+                  wrapMode: TextEdit.Wrap
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
+                  selectByMouse: true
+                  text: root.importText
+                  onTextChanged: root.importText = text
                 }
-                MouseArea {
-                  id: suggestedHover
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.addSuggestedFeed(modelData)
-                }
-                PanelToolTip { visible: suggestedHover.containsMouse; text: modelData.url }
-              }
-            }
-          }
-          // add new feed
-          Text { text: "Add RSS feed"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
-          Row {
-            width: parent.width
-            spacing: 8
-            Rectangle {
-              width: parent.width * 0.62
-              height: 32
-              radius: Style.cornerRadius
-              color: Style.controlFill(addUrlField.activeFocus, addUrlHover.containsMouse, root.foreground, Color.accent)
-              border.width: 1; border.color: addUrlField.activeFocus ? Color.accent : Util.alpha(root.foreground, 0.14)
-              TextInput {
-                id: addUrlField
-                anchors.fill: parent
-                anchors.leftMargin: 10; anchors.rightMargin: 10
-                verticalAlignment: Text.AlignVCenter
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                selectByMouse: true
-                selectionColor: Color.accent
-                text: root.newFeedUrl
-                onTextChanged: root.newFeedUrl = text
-                Keys.onReturnPressed: root.addFeed()
               }
               Text {
                 anchors.left: parent.left
-                anchors.leftMargin: 10
-                anchors.verticalCenter: parent.verticalCenter
-                visible: addUrlField.text.length === 0 && !addUrlField.activeFocus
-                text: "https://example.com/rss.xml"
-                color: root.foreground; opacity: 0.35
+                anchors.top: parent.top
+                anchors.margins: 10
+                visible: importField.text.length === 0
+                text: "Paste JSON array or OPML <outline> here for import…"
+                color: root.foreground; opacity: 0.3
                 font.family: root.fontFamily; font.pixelSize: Style.font.caption
               }
-              HoverHandler { id: addUrlHover }
             }
-            Rectangle {
-              width: parent.width * 0.22
-              height: 32
-              radius: Style.cornerRadius
-              color: Style.controlFill(addTitleField.activeFocus, addTitleHover.containsMouse, root.foreground, Color.accent)
-              border.width: 1; border.color: addTitleField.activeFocus ? Color.accent : Util.alpha(root.foreground, 0.14)
-              TextInput {
-                id: addTitleField
-                anchors.fill: parent
-                anchors.leftMargin: 8; anchors.rightMargin: 8
-                verticalAlignment: Text.AlignVCenter
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                selectByMouse: true
-                text: root.newFeedTitle
-                onTextChanged: root.newFeedTitle = text
-                Keys.onReturnPressed: root.addFeed()
+            Row {
+              width: parent.width
+              spacing: 8
+              Rectangle {
+                width: (parent.width - 16) / 3
+                height: 30
+                radius: Style.cornerRadius
+                color: importHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
+                Text { anchors.centerIn: parent; text: "Import"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                MouseArea { id: importHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.importFeeds() }
+              }
+              Rectangle {
+                width: (parent.width - 16) / 3
+                height: 30
+                radius: Style.cornerRadius
+                color: exportJsonHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "Export JSON"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                MouseArea { id: exportJsonHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsJson() }
+              }
+              Rectangle {
+                width: (parent.width - 16) / 3
+                height: 30
+                radius: Style.cornerRadius
+                color: exportOpmlHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "Export OPML"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                MouseArea { id: exportOpmlHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsOpml() }
+              }
+            }
+            Rectangle { width: parent.width; height: 1; color: Util.alpha(root.foreground, 0.08) }
+            // ---- Preferences section ----
+            Text { text: "Preferences"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
+            // auto-refresh interval
+            Text { text: "Auto-refresh interval"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Flow {
+              width: parent.width
+              spacing: 6
+              Repeater {
+                model: root.autoRefreshOptions
+                delegate: Rectangle {
+                  required property var modelData
+                  property int ms: modelData.min * 60 * 1000
+                  property bool isSel: root.autoRefreshIntervalMs === ms
+                  width: arLabel.implicitWidth + 18
+                  height: 26
+                  radius: 13
+                  color: isSel ? Color.accent : (arHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06))
+                  border.width: 1
+                  border.color: isSel ? Color.accent : Util.alpha(root.foreground, 0.12)
+                  Text {
+                    id: arLabel
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: isSel ? Color.background : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: isSel
+                  }
+                  MouseArea {
+                    id: arHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setAutoRefresh(ms)
+                  }
+                }
+              }
+            }
+            // reading theme — consistent chip style (#8)
+            Text { text: "Reading theme"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Flow {
+              width: parent.width
+              spacing: 6
+              Repeater {
+                model: [
+                  {key:"auto", label:"Auto"}, {key:"contrast", label:"Contrast"}, {key:"light", label:"Light"},
+                  {key:"dark", label:"Dark"}, {key:"sepia", label:"Sepia"}, {key:"grey", label:"Grey"}
+                ]
+                delegate: Rectangle {
+                  required property var modelData
+                  property bool isSel: root.readingTheme === modelData.key
+                  property var pal: root.readingPalette[modelData.key] || null
+                  width: rtLabel.implicitWidth + 22
+                  height: 26
+                  radius: 13
+                  color: isSel ? Color.accent : (rtHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06))
+                  border.width: 1
+                  border.color: isSel ? Color.accent : Util.alpha(root.foreground, 0.12)
+                  Row {
+                    anchors.centerIn: parent
+                    spacing: 5
+                    Rectangle {
+                      visible: pal !== null
+                      width: 12; height: 12; radius: 6
+                      anchors.verticalCenter: parent.verticalCenter
+                      color: pal ? pal.bg : "#888"
+                      border.width: 1; border.color: Util.alpha(root.foreground, 0.3)
+                    }
+                    Text {
+                      id: rtLabel
+                      text: modelData.label
+                      color: isSel ? Color.background : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: isSel
+                    }
+                  }
+                  MouseArea {
+                    id: rtHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setReadingTheme(modelData.key)
+                  }
+                }
+              }
+            }
+            // font size
+            Text { text: "Font size"; color: root.foreground; opacity: 0.8; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+            Row {
+              width: parent.width
+              spacing: 8
+              Rectangle {
+                width: 30; height: 26; radius: 13
+                color: fMinusHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "A−"; color: root.foreground; font.pixelSize: 10; font.family: root.fontFamily }
+                MouseArea { id: fMinusHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.adjustFont(-1) }
               }
               Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                visible: addTitleField.text.length === 0 && !addTitleField.activeFocus
-                text: "Title (optional)"
-                color: root.foreground; opacity: 0.35
+                width: parent.width - 2 * 30 - 54 - 3 * 8
+                horizontalAlignment: Text.AlignHCenter
+                text: root.articleFontSize + "px"
+                color: root.foreground
                 font.family: root.fontFamily; font.pixelSize: Style.font.caption
               }
-              HoverHandler { id: addTitleHover }
-            }
-            Rectangle {
-              width: parent.width - (parent.width * 0.62 + parent.width * 0.22 + 16)
-              height: 32
-              radius: Style.cornerRadius
-              color: addHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
-              Text { anchors.centerIn: parent; text: "Add"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
-              MouseArea { id: addHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.addFeed() }
-            }
-          }
-          // import / export
-          Text { text: "Import / Export"; color: root.foreground; opacity: 0.9; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall; font.bold: true }
-          Rectangle {
-            width: parent.width
-            height: 72
-            radius: 6
-            color: Util.alpha(root.foreground, 0.04)
-            border.width: 1; border.color: Util.alpha(root.foreground, 0.08)
-            Flickable {
-              anchors.fill: parent
-              anchors.margins: 8
-              clip: true
-              contentHeight: importField.implicitHeight
-              flickableDirection: Flickable.VerticalFlick
-              TextEdit {
-                id: importField
-                width: parent.width
-                wrapMode: TextEdit.Wrap
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                selectByMouse: true
-                text: root.importText
-                onTextChanged: root.importText = text
+              Rectangle {
+                width: 30; height: 26; radius: 13
+                color: fPlusHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "A+"; color: root.foreground; font.pixelSize: 10; font.family: root.fontFamily }
+                MouseArea { id: fPlusHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.adjustFont(1) }
+              }
+              Rectangle {
+                width: 54; height: 26; radius: 13
+                color: fResetHover.containsMouse ? Util.alpha(root.foreground, 0.12) : Util.alpha(root.foreground, 0.06)
+                border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
+                Text { anchors.centerIn: parent; text: "Reset"; color: root.foreground; font.pixelSize: Style.font.caption; font.family: root.fontFamily }
+                MouseArea { id: fResetHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.resetFont() }
               }
             }
             Text {
-              anchors.left: parent.left
-              anchors.top: parent.top
-              anchors.margins: 10
-              visible: importField.text.length === 0
-              text: "Paste JSON array or OPML <outline> here for import…"
-              color: root.foreground; opacity: 0.3
-              font.family: root.fontFamily; font.pixelSize: Style.font.caption
+              width: parent.width
+              text: "These also apply to the reading view (article header)."
+              color: root.foreground; opacity: 0.35
+              font.family: root.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
             }
-          }
-          Row {
-            width: parent.width
-            spacing: 8
-            Rectangle {
-              width: (parent.width - 16) / 3
-              height: 30
-              radius: Style.cornerRadius
-              color: importHover.containsMouse ? Color.accent : Util.alpha(Color.accent, 0.88)
-              Text { anchors.centerIn: parent; text: "Import"; color: Color.background; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-              MouseArea { id: importHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.importFeeds() }
+            Text {
+              width: parent.width
+              visible: root.settingsError !== "" || root.settingsInfo !== ""
+              text: root.settingsError || root.settingsInfo
+              color: root.settingsError ? Color.urgent : Color.accent
+              opacity: 0.9
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
-            Rectangle {
-              width: (parent.width - 16) / 3
-              height: 30
-              radius: Style.cornerRadius
-              color: exportJsonHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
-              border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-              Text { anchors.centerIn: parent; text: "Export JSON"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              MouseArea { id: exportJsonHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsJson() }
+            Text {
+              width: parent.width
+              text: "Tip: JSON is an array of {title,url}. OPML from Feedly/Inoreader works too. Exports go to ~/Downloads + clipboard."
+              color: root.foreground; opacity: 0.35
+              font.family: root.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
             }
-            Rectangle {
-              width: (parent.width - 16) / 3
-              height: 30
-              radius: Style.cornerRadius
-              color: exportOpmlHover.containsMouse ? root.selectedBackground : Util.alpha(root.foreground, 0.06)
-              border.width: 1; border.color: Util.alpha(root.foreground, 0.12)
-              Text { anchors.centerIn: parent; text: "Export OPML"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              MouseArea { id: exportOpmlHover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.exportFeedsOpml() }
-            }
-          }
-          Text {
-            width: parent.width
-            visible: root.settingsError !== "" || root.settingsInfo !== ""
-            text: root.settingsError || root.settingsInfo
-            color: root.settingsError ? Color.urgent : Color.accent
-            opacity: 0.9
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-          }
-          Text {
-            width: parent.width
-            text: "Tip: JSON is an array of {title,url}. OPML from Feedly/Inoreader works too. Exports go to ~/Downloads + clipboard."
-            color: root.foreground; opacity: 0.35
-            font.family: root.fontFamily; font.pixelSize: 10; wrapMode: Text.WordWrap
           }
         }
       }

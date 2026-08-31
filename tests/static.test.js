@@ -36,7 +36,8 @@ describe("static assets", () => {
     // centralized state paths via Config
     expect(qml).toContain('Config.stateDir');
     expect(qml).toContain('readonly property string allFeedsId: Config.allFeedsId');
-    expect(qml).toContain('readonly property int autoRefreshIntervalMs');
+    expect(qml).toContain('property int autoRefreshIntervalMs: autoRefreshDefaultMs');
+    expect(qml).toContain('readonly property var autoRefreshOptions');
     expect(qml).toContain('readonly property int timeAgoIntervalMs');
     expect(qml).toContain('readonly property int autoMarkDelayMs');
     expect(qml).toContain('readonly property int toastDurationMs');
