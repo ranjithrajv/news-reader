@@ -5,10 +5,11 @@ Fullscreen overlay RSS reader for Omarchy Quattro. Lives in one `omarchy-shell` 
 Press the bar button (📰) or summon via IPC to open a centered card:
 
 - **Live RSS** — no hard-coded feeds or articles; add your own RSS/Atom URLs in Settings (⚙) or import OPML/JSON — see `suggested-feeds.json` for examples
-- **Search + feed chips** — `/` focuses search, chips filter by source, `j`/`k` or `↑`/`↓` navigate, `Enter` opens, `r` refreshes, `Ctrl+C` copies link
+- **Search + feed chips** — `/` focuses search, matches title/description/feed name plus the full cached body of any story you've opened; chips filter by source and are grouped into folders by feed category, `j`/`k` or `↑`/`↓` navigate, `Enter` opens, `r` refreshes, `Ctrl+C` copies link
+- **Feed folders** — feeds group under a category header (edit a feed's category inline in Settings) in both the chip bar and the Settings feed list
 - **Scrim + keyboard layer** — `WlrLayershell.layer: Overlay`, `Exclusive` focus, `Esc` dismisses, click outside dismisses
 - **Read tracking** — read ids persisted at `~/.local/state/omarchy/news-reader-read.json` (800-entry cap), unread dot + “Mark read”
-- **Auto refresh** — polling every 10 min while open + minute-granular “2h ago” labels
+- **Auto refresh** — configurable Hourly (default) / Daily / Weekly in Settings, persisted, + minute-granular “2h ago” labels
 
 ## Install
 
