@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ranjithraj.news-reader",
   "name": "News Reader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Ranjith Raj",
   "license": "AGPL-3.0-or-later",
   "description": "Fullscreen overlay RSS news reader — bring your own RSS/Atom feeds, search, filter by source, and open stories in your browser. No hard-coded feeds or articles; configure via Settings or import OPML/JSON. Summon from the bar or with omarchy-shell shell summon.",

@@ -5,6 +5,26 @@ All notable changes to `news-reader` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-03
+
+### Added
+- 11-language i18n: English, Spanish, German, Chinese, Arabic, Hindi, French, Bengali, Russian, Portuguese, Urdu — Arabic/Urdu render RTL — `I18n.js`.
+- Full-text search over cached article bodies, feed folders/grouping — `NewsModel.js`, `Overlay.qml`.
+- Configurable auto-refresh interval, scrollable settings panel — `Overlay.qml`.
+
+### Fixed
+- First-run feed seeding no longer depends on a single racy `FileView` load: `suggested-feeds.json` is retried on every open and backed by an embedded fallback so the overlay never idles empty.
+- Queued state-file reads — concurrent reload calls no longer silently drop all but the last callback.
+- Descriptor-bound no-follow reads and `preload:false` on state `FileView`s; bounded writable-state reads with capped retained collections.
+
+### Changed
+- Renamed plugin id to `ranjithraj.news-reader`.
+
+### Chores
+- Hardened `scripts/verify.sh` with JS/manifest/secret checks; added git hooks.
+
+[0.2.0]: https://github.com/ranjithrajv/news-reader/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-08-24
 
 First public release — fullscreen overlay RSS reader for Omarchy Quattro (`overlay` + `bar-widget`, `keepLoaded: true`).
