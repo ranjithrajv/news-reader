@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import * as I18n from "../I18n.js";
 
 describe("Locales / LocaleNames", () => {
-  it("lists the 5 supported locales with a display name each", () => {
-    expect(I18n.Locales).toEqual(["en", "es", "de", "zh", "ar"]);
+  it("lists the 11 supported locales with a display name each", () => {
+    expect(I18n.Locales).toEqual(["en", "es", "de", "zh", "ar", "hi", "fr", "bn", "ru", "pt", "ur"]);
     for (const loc of I18n.Locales) {
       expect(typeof I18n.LocaleNames[loc]).toBe("string");
       expect(I18n.LocaleNames[loc].length).toBeGreaterThan(0);
@@ -12,12 +12,18 @@ describe("Locales / LocaleNames", () => {
 });
 
 describe("isRtl", () => {
-  it("is true only for Arabic", () => {
+  it("is true only for Arabic and Urdu", () => {
     expect(I18n.isRtl("ar")).toBe(true);
+    expect(I18n.isRtl("ur")).toBe(true);
     expect(I18n.isRtl("en")).toBe(false);
     expect(I18n.isRtl("es")).toBe(false);
     expect(I18n.isRtl("de")).toBe(false);
     expect(I18n.isRtl("zh")).toBe(false);
+    expect(I18n.isRtl("hi")).toBe(false);
+    expect(I18n.isRtl("fr")).toBe(false);
+    expect(I18n.isRtl("bn")).toBe(false);
+    expect(I18n.isRtl("ru")).toBe(false);
+    expect(I18n.isRtl("pt")).toBe(false);
     expect(I18n.isRtl("")).toBe(false);
     expect(I18n.isRtl(undefined)).toBe(false);
   });
@@ -29,14 +35,20 @@ describe("resolveLocale", () => {
     expect(I18n.resolveLocale(["de-DE"], I18n.Locales)).toBe("de");
     expect(I18n.resolveLocale(["zh-Hans-CN"], I18n.Locales)).toBe("zh");
     expect(I18n.resolveLocale(["ar-EG"], I18n.Locales)).toBe("ar");
+    expect(I18n.resolveLocale(["hi-IN"], I18n.Locales)).toBe("hi");
+    expect(I18n.resolveLocale(["fr-FR"], I18n.Locales)).toBe("fr");
+    expect(I18n.resolveLocale(["bn-BD"], I18n.Locales)).toBe("bn");
+    expect(I18n.resolveLocale(["ru-RU"], I18n.Locales)).toBe("ru");
+    expect(I18n.resolveLocale(["pt-BR"], I18n.Locales)).toBe("pt");
+    expect(I18n.resolveLocale(["ur-PK"], I18n.Locales)).toBe("ur");
   });
 
   it("falls through to the next tag when the first isn't supported", () => {
-    expect(I18n.resolveLocale(["fr-FR", "es-MX"], I18n.Locales)).toBe("es");
+    expect(I18n.resolveLocale(["it-IT", "es-MX"], I18n.Locales)).toBe("es");
   });
 
   it("defaults to en when nothing matches or supported not passed", () => {
-    expect(I18n.resolveLocale(["fr-FR", "it-IT"], I18n.Locales)).toBe("en");
+    expect(I18n.resolveLocale(["it-IT", "ja-JP"], I18n.Locales)).toBe("en");
     expect(I18n.resolveLocale(["en-US"])).toBe("en");
   });
 
@@ -61,10 +73,16 @@ describe("t", () => {
     expect(I18n.t("de", "toolbar.title")).toBe("Nachrichtenleser");
     expect(I18n.t("zh", "toolbar.title")).toBe("新闻阅读器");
     expect(I18n.t("ar", "toolbar.title")).toBe("قارئ الأخبار");
+    expect(I18n.t("hi", "toolbar.title")).toBe("न्यूज़ रीडर");
+    expect(I18n.t("fr", "toolbar.title")).toBe("Lecteur d'actualités");
+    expect(I18n.t("bn", "toolbar.title")).toBe("নিউজ রিডার");
+    expect(I18n.t("ru", "toolbar.title")).toBe("Читалка новостей");
+    expect(I18n.t("pt", "toolbar.title")).toBe("Leitor de Notícias");
+    expect(I18n.t("ur", "toolbar.title")).toBe("نیوز ریڈر");
   });
 
   it("falls back to English for an unsupported locale", () => {
-    expect(I18n.t("fr", "toolbar.title")).toBe("News Reader");
+    expect(I18n.t("it", "toolbar.title")).toBe("News Reader");
     expect(I18n.t(undefined, "toolbar.title")).toBe("News Reader");
   });
 
@@ -136,6 +154,10 @@ describe("translation completeness", () => {
       "de:settings.feeds": true, // same loanword in German tech UI
       "es:theme.sepia": true, // "Sepia" is the same word in Spanish
       "de:theme.sepia": true, // "Sepia" is the same word in German
+      "fr:detail.min": true, // "min" is also the French abbreviation for minute
+      "pt:detail.min": true, // "min" is also the Portuguese abbreviation for minuto
+      "pt:settings.feeds": true, // "Feeds" is used as a loanword in Portuguese tech UI
+      "pt:settings.feedsCount": true, // same loanword ("{n} feeds")
     };
     for (const loc of I18n.Locales) {
       for (const key of sampleKeys) {
