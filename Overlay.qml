@@ -24,7 +24,18 @@ Item {
   readonly property string readingThemePath: stateDir + "news-reader-reading-theme.json"
   readonly property string autoRefreshPath: stateDir + "news-reader-autorefresh.json"
   readonly property string localePath: stateDir + "news-reader-locale.json"
-  readonly property string suggestedFeedsPath: Qt.resolvedUrl("suggested-feeds.json")
+  readonly property string suggestedFeedsPath: Qt.resolvedUrl("suggested-feeds.json").toString()
+  // Embedded fallback — mirrors suggested-feeds.json so first run works even
+  // if the bundled FileView load fails or races persisted-state loading.
+  readonly property var defaultFeeds: [
+    { id: "default_hackernews", title: "Hacker News", url: "https://news.ycombinator.com/rss", category: "Open Source" },
+    { id: "default_lobsters", title: "Lobste.rs", url: "https://lobste.rs/rss", category: "Open Source" },
+    { id: "default_phoronix", title: "Phoronix", url: "https://www.phoronix.com/rss.php", category: "Open Source" },
+    { id: "default_itsfoss", title: "It's FOSS", url: "https://itsfoss.com/feed/", category: "Open Source" },
+    { id: "default_arxiv_cs", title: "arXiv CS", url: "https://rss.arxiv.org/rss/cs", category: "Open Science" },
+    { id: "default_plosone", title: "PLOS ONE", url: "https://journals.plos.org/plosone/feed/atom", category: "Open Science" },
+    { id: "default_sciencedaily", title: "ScienceDaily", url: "https://www.sciencedaily.com/rss/all.xml", category: "Open Science" }
+  ]
 
   // --- Auto-refresh interval options — hourly (60m) is the default ---
   readonly property var autoRefreshOptions: [
@@ -85,6 +96,8 @@ Item {
   property string selectedFeedId: allFeedsId
   property int selectedIndex: 0
   property var feeds: []
+  property bool feedsLoaded: false
+  property bool feedsSeeded: false
   property var suggestedFeeds: []
   property var articles: []
   property var readIds: ({})
@@ -427,9 +440,20 @@ Item {
     } catch(e) {}
     root.reloadReadIds()
     root.reloadFeedsState()
-    // No hard-coded mock articles — fetch only user-configured feeds.
-    if (root.articles.length === 0) {
-      root.refresh()
+    // Retry bundled suggested feeds every open — startup FileView load may
+    // have failed or raced, and seeding depends on it.
+    suggestedFeedsFileView.reload()
+    // Synchronous first-run seed from embedded defaults so the overlay never
+    // idles on "no feeds" waiting for async callbacks.
+    if (root.feeds.length === 0) root.maybeSeedDefaultFeeds()
+    // Fetch only once feeds are known — applyFeedsState() triggers refresh
+    // when feeds arrive. If feeds are already in memory, refresh now.
+    if (root.feedsLoaded && root.feeds.length > 0) {
+      if (root.articles.length === 0) root.refresh()
+    } else if (root.feedsLoaded && root.feeds.length === 0) {
+      root.maybeSeedDefaultFeeds()
+      if (root.feeds.length > 0) { if (root.articles.length === 0) root.refresh() }
+      else if (!root.errorText) root.errorText = root.tr("error.noFeedsConfigured")
     }
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -675,8 +699,42 @@ Item {
   function applyFeedsState(t) {
     try {
       var clean = NewsModel.sanitizeFeeds(JSON.parse(String(t || "")))
-      if (clean.length > 0) root.feeds = clean
+      if (clean.length > 0) {
+        var hadNone = root.feeds.length === 0
+        root.feeds = clean
+        root.feedsLoaded = true
+        if (hadNone && root.opened && root.articles.length === 0 && !root.loading) root.refresh()
+        return
+      }
     } catch(e) {}
+    // No persisted feeds (first run / empty state): seed from suggested feeds
+    // so the plugin loads content by default instead of idling on "no feeds".
+    root.maybeSeedDefaultFeeds()
+    root.feedsLoaded = true
+    if (root.feeds.length > 0 && root.opened && root.articles.length === 0 && !root.loading) root.refresh()
+    else if (root.feeds.length === 0 && root.opened && root.articles.length === 0 && !root.loading) {
+      // still nothing to fetch — surface the empty-state error
+      if (!root.errorText) root.errorText = root.tr("error.noFeedsConfigured")
+    }
+  }
+  function maybeSeedDefaultFeeds() {
+    if (root.feeds.length > 0) return
+    // Prefer loaded suggested feeds, fall back to embedded defaults so a
+    // failed/racing FileView load can never leave first run with no feeds.
+    var source = (root.suggestedFeeds && root.suggestedFeeds.length > 0) ? root.suggestedFeeds : root.defaultFeeds
+    if (!source || source.length === 0) return
+    var next = []
+    for (var i = 0; i < source.length; i++) {
+      var clean = NewsModel.sanitizeFeed(source[i])
+      if (!clean || !clean.url) continue
+      var tid = clean.id
+      if (!tid) tid = clean.url.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 24) + "_" + Date.now().toString(36) + i
+      next.push({ id: tid, title: clean.title, url: clean.url, category: clean.category || "General" })
+      if (next.length >= NewsModel.Limits.MAX_FEEDS) break
+    }
+    if (next.length === 0) return
+    root.feeds = next
+    try { feedsFile.setText(JSON.stringify(root.feeds, null, 2)) } catch(e) {}
   }
   function applyFontSize(t) {
     var n = parseInt(String(t || "").trim(), 10)
@@ -695,19 +753,40 @@ Item {
     if (I18n.Locales.indexOf(l) !== -1) root.locale = l
   }
 
-  // one sequential bounded reader for all writable state files
+  // queued bounded reader for all writable state files — a single Process
+  // can only serve one read at a time, so queue requests instead of sharing
+  // one sink (which dropped all but the last callback on startup/open).
+  property var stateReadQueue: []
+  property bool stateReadBusy: false
+  property var stateReadCurrent: null
   Process {
     id: stateReader
-    property var sink: null
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: if (stateReader.sink) stateReader.sink(String(text || ""))
+      onStreamFinished: root.finishStateRead(String(text || ""))
     }
   }
   function readStateFile(path, sink) {
-    stateReader.sink = sink
-    stateReader.command = ["bash", "-c", Config.stateReadCmd(path, Config.stateMaxBytes)]
+    root.stateReadQueue.push({ path: path, sink: sink })
+    root.pumpStateQueue()
+  }
+  function pumpStateQueue() {
+    if (root.stateReadBusy || root.stateReadQueue.length === 0) return
+    if (stateReader.running) return
+    var next = root.stateReadQueue[0]
+    root.stateReadCurrent = next
+    root.stateReadBusy = true
+    stateReader.command = ["bash", "-c", Config.stateReadCmd(next.path, Config.stateMaxBytes)]
     stateReader.running = true
+  }
+  function finishStateRead(text) {
+    var cur = root.stateReadCurrent
+    root.stateReadQueue.shift()
+    root.stateReadCurrent = null
+    root.stateReadBusy = false
+    try { if (cur && cur.sink) cur.sink(text) } catch(e) {}
+    // drain the queue on the next tick so Process has settled
+    Qt.callLater(root.pumpStateQueue)
   }
   function reloadReadIds()      { root.readStateFile(root.readIdsPath, root.applyReadIds) }
   function reloadFontSize()     { root.readStateFile(root.fontSizePath, root.applyFontSize) }
@@ -758,10 +837,23 @@ Item {
     path: root.suggestedFeedsPath
     onLoaded: {
       try { root.suggestedFeeds = NewsModel.sanitizeFeeds(JSON.parse(text())) } catch(e){}
+      // First run: no persisted feeds yet — seed defaults so content loads.
+      if (root.feedsLoaded && root.feeds.length === 0 && root.suggestedFeeds.length > 0) {
+        root.maybeSeedDefaultFeeds()
+        if (root.feeds.length > 0 && root.opened && root.articles.length === 0 && !root.loading) root.refresh()
+      }
     }
-    onLoadFailed: {}
+    onLoadFailed: {
+      // Bundled file unreadable — fall back to embedded defaults so first
+      // run still loads feeds instead of idling empty.
+      if (root.suggestedFeeds.length === 0) root.suggestedFeeds = NewsModel.sanitizeFeeds(root.defaultFeeds)
+      if (root.feedsLoaded && root.feeds.length === 0) {
+        root.maybeSeedDefaultFeeds()
+        if (root.feeds.length > 0 && root.opened && root.articles.length === 0 && !root.loading) root.refresh()
+      }
+    }
   }
-  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); root.reloadAutoRefresh(); root.reloadLocale(); suggestedFeedsFileView.reload() }
+  Component.onCompleted: { root.reloadFontSize(); root.reloadFeedsState(); root.reloadReadingTheme(); root.reloadAutoRefresh(); root.reloadLocale(); suggestedFeedsFileView.reload(); if (root.feeds.length === 0) root.maybeSeedDefaultFeeds() }
   onUnreadCountChanged: {
     if (unreadFile) unreadFile.setText(String(root.unreadCount))
   }
