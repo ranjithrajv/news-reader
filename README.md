@@ -1,6 +1,8 @@
 # News Reader — Omarchy Overlay
 
-Fullscreen overlay RSS reader for Omarchy Quattro. Lives in one `omarchy-shell` process as an `overlay` + `bar-widget` plugin.
+![News Reader overlay — keyboard-driven RSS list with the full article rendered in-panel](docs/demo.gif)
+
+Read the whole article without leaving the compositor. Fullscreen RSS overlay for Omarchy Quattro — press the bar button and a story opens, extracts and renders **in the panel**: no browser tab, no terminal split. Lives in one `omarchy-shell` process as an `overlay` + `bar-widget` plugin.
 
 Press the bar button (📰) or summon via IPC to open a centered card:
 
