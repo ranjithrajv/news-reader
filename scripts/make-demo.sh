@@ -32,6 +32,6 @@ ffmpeg -y -loglevel error "${trim[@]}" -i "$SRC" \
   -loop 0 "$OUT"
 
 bytes=$(stat -c %s "$OUT")
-printf '%s  %.1f MB  %ss @ %sfps  %spx\n' "$OUT" "$(echo "$bytes/1048576" | bc -l)" "${DURATION:-full}" "$FPS" "$WIDTH"
+printf '%s  %sB  %ss @ %sfps  %spx\n' "$OUT" "$(numfmt --to=iec --format='%.1f' "$bytes")" "${DURATION:-full}" "$FPS" "$WIDTH"
 (( bytes > 10485760 )) && echo "warning: >10MB, README load will drag — lower WIDTH or DURATION" >&2
 exit 0
